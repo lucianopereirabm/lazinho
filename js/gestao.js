@@ -193,73 +193,71 @@ async function bloqueia(id) {
 }
 
 // ---------- CARGA DO PORTAL ----------
-let carga = null;
+let sync = null;
+async function aplicaAndamentos(lista) {
+  const b = writeBatch(db); let n = 0;
+  (lista || []).forEach(a => {
+    const p = pedidos.find(x => x.id === a.appId); if (!p) return;
+    if ((p.status === a.status) && (p.nfNumero || '') === (a.nfNumero || '') && (p.entregueEm || '') === (a.entregueEm || '') && (p.numeroPortal || '') === String(a.numeroPortal || '')) return;
+    const upd = { status: a.status, nfNumero: a.nfNumero || '', entregueEm: a.entregueEm || '', numeroPortal: String(a.numeroPortal || ''), statusEm: Date.now() };
+    if (['recebido', 'faturado', 'entregue'].includes(a.status) && !p.recebidoEm) upd.recebidoEm = Date.now();
+    if (['faturado', 'entregue'].includes(a.status) && !p.faturadoEm) upd.faturadoEm = Date.now();
+    b.update(doc(db, 'pedidos', a.appId), upd); n++;
+  });
+  if (n) await b.commit();
+  return n;
+}
+async function baixaPedidos(novos, cnovos) {
+  const out = novos.map(p => ({ appId: p.id, data: p.data, clienteDoc: p.clienteDoc, clienteNome: p.clienteNome, itens: p.itens, total: p.total, condicaoId: p.condicaoId, condicaoNome: p.condicaoNome, prazo: p.prazo, obs: p.obs, dataEntrega: p.dataEntrega, vendedorId: p.vendedorId, vendedorNome: p.vendedorNome, criadoMs: p.criadoMs }));
+  const cl = cnovos.map(c => { const { uid, status, ...resto } = c; return resto; });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify({ gerado: new Date().toISOString(), clientes: cl, pedidos: out }, null, 1)], { type: 'application/json' })); a.download = 'pedidos-app-' + ymd() + '.json'; a.click();
+  const b = writeBatch(db); const t = Date.now();
+  novos.forEach(p => b.update(doc(db, 'pedidos', p.id), { status: 'recebido', recebidoEm: t, statusEm: t }));
+  cnovos.forEach(c => b.update(doc(db, 'clientesNovos', c.doc), { status: 'enviado', enviadoEm: t }));
+  await b.commit();
+}
 function abaCarga() {
   const novos = pedidos.filter(p => p.status === 'novo'), cnovos = clientesNovos.filter(c => c.status === 'novo');
   main().innerHTML = `
-    <h2>Carga do Portal</h2>
-    <div class="note">No Portal Lazinho, use o botão <b>“Exportar carga para o app”</b> (clientes, produtos, condições, vendedores e resumo de vendas). Depois envie o arquivo aqui. Isso atualiza o que os vendedores veem no app.</div>
+    <h2>Atualizar tudo</h2>
+    <div class="note">Um botão só. <b>1)</b> No Portal, aba App, clique em <b>Atualizar tudo</b> e guarde o arquivo. <b>2)</b> Escolha o arquivo aqui e clique em <b>Atualizar tudo</b>: o app recebe clientes, produtos, vendas e andamento dos pedidos, e baixa os pedidos novos para o Portal. <b>3)</b> No Portal, escolha o arquivo de pedidos em <b>Atualizar tudo</b>.</div>
     <div class="card stack">
-      <div class="small muted">No app agora: ${nClientes} cliente(s), ${nProdutos} produto(s), ${vendedores.length} vendedor(es).</div>
+      <div class="small muted">No app agora: ${nClientes} cliente(s), ${nProdutos} produto(s), ${vendedores.length} vendedor(es). Esperando o Portal: ${novos.length} pedido(s) novo(s) e ${cnovos.length} cliente(s) novo(s).</div>
+      <label class="small muted">Arquivo vindo do Portal (opcional)</label>
       <input type="file" id="cg-arq" accept="application/json,.json">
       <div id="cg-prev"></div>
-      <button class="btn primary" id="cg-env" disabled>Enviar para o app</button>
-    </div>
-    <h3>Andamento dos pedidos (do Portal para o app)</h3>
-    <div class="card stack"><div class="small muted">No Portal, aba <b>App → Baixar andamentos (arquivo)</b>. Envie o arquivo aqui para os vendedores verem Recebido, Faturado e Entregue (com a data).</div>
-      <input type="file" id="cg-and" accept="application/json,.json"><div id="cg-andprev"></div></div>
-    <h3>Pedidos e clientes novos para levar ao Portal</h3>
-    <div class="card stack"><div class="small muted">${novos.length} pedido(s) novo(s) e ${cnovos.length} cliente(s) novo(s) cadastrado(s) pelos vendedores. Ao baixar, os pedidos passam a <b>Recebido</b> e os vendedores não conseguem mais alterá-los. No Portal: <b>Importar pedidos do app</b>.</div>
-      <div class="row"><button class="btn primary" id="cg-exp" ${novos.length || cnovos.length ? '' : 'disabled'}>Baixar e marcar como recebidos</button></div></div>`;
+      <button class="btn primary" id="cg-env" ${novos.length || cnovos.length ? '' : 'disabled'}>Atualizar tudo</button>
+      <div id="cg-res"></div>
+    </div>`;
   $('#cg-arq').onchange = async e => {
-    const f = e.target.files[0]; if (!f) return;
-    try { carga = JSON.parse(await f.text()); } catch (err) { carga = null; $('#cg-prev').innerHTML = '<div class="note crit">Arquivo inválido.</div>'; return; }
-    $('#cg-prev').innerHTML = `<div class="note ok">Arquivo de ${h(carga.gerado || '—')}: ${(carga.clientes || []).length} clientes, ${(carga.produtos || []).length} produtos, ${(carga.condicoes || []).length} condições, ${(carga.vendedores || []).length} vendedores, ${Object.keys(carga.resumo || {}).length} resumos.</div>`;
+    const f = e.target.files[0]; sync = null; if (!f) { $('#cg-prev').innerHTML = ''; return; }
+    try { const j = JSON.parse(await f.text()); sync = j.carga ? j : { carga: j.clientes && j.produtos ? j : null, andamentos: j.andamentos || [] }; } catch (err) { $('#cg-prev').innerHTML = '<div class="note crit">Arquivo inválido.</div>'; return; }
+    const c = sync.carga || {};
+    $('#cg-prev').innerHTML = `<div class="note ok">Arquivo de ${h(c.gerado || sync.gerado || '—')}: ${(c.clientes || []).length} clientes, ${(c.produtos || []).length} produtos, ${(c.condicoes || []).length} condições, ${(c.vendedores || []).length} vendedores, ${(sync.andamentos || []).length} andamento(s).</div>`;
     $('#cg-env').disabled = false;
   };
-  $('#cg-env').onclick = enviaCarga;
-  $('#cg-and').onchange = async e => {
-    const f = e.target.files[0]; if (!f) return;
+  $('#cg-env').onclick = async () => {
+    const btn = $('#cg-env'), r = $('#cg-res'); btn.disabled = true; btn.textContent = 'Atualizando…'; const L = [];
     try {
-      const j = JSON.parse(await f.text()), b = writeBatch(db); let n = 0;
-      (j.andamentos || []).forEach(a => {
-        const p = pedidos.find(x => x.id === a.appId); if (!p) return;
-        if ((p.status === a.status) && (p.nfNumero || '') === (a.nfNumero || '') && (p.entregueEm || '') === (a.entregueEm || '') && (p.numeroPortal || '') === String(a.numeroPortal || '')) return;
-        const upd = { status: a.status, nfNumero: a.nfNumero || '', entregueEm: a.entregueEm || '', numeroPortal: String(a.numeroPortal || ''), statusEm: Date.now() };
-        if (['recebido', 'faturado', 'entregue'].includes(a.status) && !p.recebidoEm) upd.recebidoEm = Date.now();
-        if (['faturado', 'entregue'].includes(a.status) && !p.faturadoEm) upd.faturadoEm = Date.now();
-        b.update(doc(db, 'pedidos', a.appId), upd); n++;
-      });
-      if (n) await b.commit();
-      $('#cg-andprev').innerHTML = `<div class="note ok">${n} pedido(s) atualizado(s) no app.</div>`; toast(n + ' andamento(s) enviado(s) ao app.');
-    } catch (err) { $('#cg-andprev').innerHTML = '<div class="note crit">Arquivo inválido ou sem permissão: ' + h(err.message) + '</div>'; }
-    e.target.value = '';
-  };
-  $('#cg-exp').onclick = async () => {
-    const out = novos.map(p => ({ appId: p.id, data: p.data, clienteDoc: p.clienteDoc, clienteNome: p.clienteNome, itens: p.itens, total: p.total, condicaoId: p.condicaoId, condicaoNome: p.condicaoNome, prazo: p.prazo, obs: p.obs, dataEntrega: p.dataEntrega, vendedorId: p.vendedorId, vendedorNome: p.vendedorNome, criadoMs: p.criadoMs }));
-    const cl = cnovos.map(c => { const { uid, status, ...resto } = c; return resto; });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify({ gerado: new Date().toISOString(), clientes: cl, pedidos: out }, null, 1)], { type: 'application/json' })); a.download = 'pedidos-app-' + ymd() + '.json'; a.click();
-    try {
-      const b = writeBatch(db); const t = Date.now();
-      novos.forEach(p => b.update(doc(db, 'pedidos', p.id), { status: 'recebido', recebidoEm: t, statusEm: t }));
-      cnovos.forEach(c => b.update(doc(db, 'clientesNovos', c.doc), { status: 'enviado', enviadoEm: t }));
-      await b.commit(); toast('Arquivo baixado. Pedidos marcados como recebidos.');
-    } catch (e) { toast('Baixou, mas não marquei como recebidos: ' + erroMsg(e), 5000); }
+      if (sync && sync.carga) { const n = await enviaCarga(sync.carga, btn); L.push(n + ' registros enviados ao app (clientes, produtos, vendas).'); }
+      if (sync && (sync.andamentos || []).length) { const n = await aplicaAndamentos(sync.andamentos); L.push(n + ' pedido(s) com andamento novo para os vendedores.'); }
+      if (novos.length || cnovos.length) { await baixaPedidos(novos, cnovos); L.push(novos.length + ' pedido(s) e ' + cnovos.length + ' cliente(s) novo(s) baixados para o Portal (pedidos agora travados no app).'); }
+      if (!L.length) L.push('Nada novo para atualizar.');
+      r.innerHTML = '<div class="note ok">' + L.map(h).join('<br>') + '</div>'; toast('Atualizado.'); sync = null;
+    } catch (e) { r.innerHTML = '<div class="note crit">' + h(erroMsg(e)) + '</div>'; toast(erroMsg(e), 5000); }
+    btn.textContent = 'Atualizar tudo'; btn.disabled = false;
   };
 }
-async function enviaCarga() {
-  if (!carga) return; const btn = $('#cg-env'); btn.disabled = true; btn.textContent = 'Enviando…';
+async function enviaCarga(carga, btn) {
   const ops = [];
   (carga.clientes || []).forEach(c => c.doc && ops.push([doc(db, 'clientes', String(c.doc)), c]));
   (carga.produtos || []).forEach(p => p.id && ops.push([doc(db, 'produtos', String(p.id)), p]));
   (carga.condicoes || []).forEach(c => c.id && ops.push([doc(db, 'condicoes', String(c.id)), c]));
   (carga.vendedores || []).forEach(v => v.id && ops.push([doc(db, 'vendedores', String(v.id)), { nome: v.nome, comissaoPct: v.comissaoPct ?? null, ativo: v.ativo !== false }]));
   Object.entries(carga.resumo || {}).forEach(([d, r]) => ops.push([doc(db, 'resumo', d), r]));
-  try {
-    for (let i = 0; i < ops.length; i += 400) {
-      const b = writeBatch(db); ops.slice(i, i + 400).forEach(([ref, data]) => b.set(ref, data, { merge: true })); await b.commit();
-      btn.textContent = 'Enviando… ' + Math.min(i + 400, ops.length) + '/' + ops.length;
-    }
-    toast('Carga enviada: ' + ops.length + ' registros.'); btn.textContent = 'Enviar para o app'; carga = null; $('#cg-prev').innerHTML = '<div class="note ok">Carga enviada com sucesso.</div>';
-  } catch (e) { toast(erroMsg(e), 5000); btn.disabled = false; btn.textContent = 'Enviar para o app'; }
+  for (let i = 0; i < ops.length; i += 400) {
+    const b = writeBatch(db); ops.slice(i, i + 400).forEach(([ref, data]) => b.set(ref, data, { merge: true })); await b.commit();
+    btn.textContent = 'Enviando… ' + Math.min(i + 400, ops.length) + '/' + ops.length;
+  }
+  return ops.length;
 }

@@ -129,3 +129,8 @@ tr.click{cursor:pointer} tr.click:hover td{background:var(--sunk)}
 .fotosg img{width:150px;height:150px;object-fit:cover;border-radius:10px;cursor:zoom-in;border:1px solid var(--line)}
 .bigfoto{width:100%;border-radius:10px;display:block}
 .girando{opacity:.6}
+.brand{display:flex;align-items:center;gap:10px}
+.brand-logo{height:46px;width:auto;background:#FFF7E6;border-radius:12px;padding:3px 6px;display:block}
+.login .logo{background:#FFF7E6;border:3px solid var(--wheat)}
+.login .logo img{display:block;margin:0 auto 6px;width:min(240px,70%);height:auto}
+.login .logo span{color:var(--red)}
