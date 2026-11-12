@@ -14,7 +14,7 @@ let clientes = [], clientesBase = [], clientesNovos = [], produtos = [], condico
 let unsubs = [];
 let leads = [], leadsSub = null, fFun = { q: '', e: 'todos', t: '', c: '', mais: 60 };
 let tab = 'pedidos';
-let fPed = { mes: ymd().slice(0, 7), st: 'todos' };
+let fPed = { mes: ymd().slice(0, 7), st: 'todos', v: '' };
 let fCli = { q: '', f: 'todos' };
 let fVis = { mes: ymd().slice(0, 7) };
 let np = novoVazio();          // pedido em digitação
@@ -54,13 +54,13 @@ onAuthStateChanged(auth, async user => {
     if (!u.exists() || !u.data().vendedorId) { mostra('v-sem'); $('#quem').innerHTML = ''; return; }
     me = { uid: user.uid, vendedorId: u.data().vendedorId, nome: u.data().nome || '', perm: permDe(u.data()) };
   } catch (e) { mostra('v-sem'); return; }
-  $('#quem').innerHTML = `<b>${h(me.nome.split(' ')[0])}</b>${me.perm.todos ? 'Supervisor' : 'Vendedor'}`; $('#sair').hidden = false; $('#atualiza').hidden = false; $('#tabbar').hidden = false;
+  $('#quem').innerHTML = `<b>${h(me.nome.split(' ')[0])}</b>${me.perm.todos ? 'Supervisor' : 'Vendedor'} · ${VERSAO}`; $('#sair').hidden = false; $('#atualiza').hidden = false; $('#tabbar').hidden = false;
   aplicaPerm(); assina(); vaiTab(tab);
 });
 
 const permDe = d => ({ pedido: d.permPedido !== false, preco: d.permPreco !== false, visita: d.permVisita !== false, cliente: d.permCliente === true || d.permTodos === true, todos: d.permTodos === true });
 function aplicaPerm() {
-  { const q = $('#quem b'); if (q) q.nextSibling.textContent = me.perm.todos ? 'Supervisor' : 'Vendedor'; }
+  { const q = $('#quem b'); if (q) q.nextSibling.textContent = (me.perm.todos ? 'Supervisor' : 'Vendedor') + ' · ' + VERSAO; }
   $$('#tabbar button').forEach(b => { b.hidden = (b.dataset.tab === 'novo' && !me.perm.pedido) || (b.dataset.tab === 'visita' && !me.perm.visita) || (b.dataset.tab === 'funil' && !me.perm.todos); });
   if ((tab === 'novo' && !me.perm.pedido) || (tab === 'visita' && !me.perm.visita) || (tab === 'funil' && !me.perm.todos)) tab = 'pedidos';
 }
@@ -72,16 +72,17 @@ function assina() {
   unsubs.forEach(u => { try { u(); } catch (e) {} }); unsubs = []; leadsSub = null; leads = [];
   const onErr = n => e => toast('Erro ao carregar ' + n + ': ' + erroMsg(e));
   const watch = (nome, q, fn) => unsubs.push(onSnapshot(q, { includeMetadataChanges: true }, s => { fn(s); }, onErr(nome)));
-  unsubs.push(onSnapshot(doc(db, 'usuarios', me.uid), d => { if (d.exists()) { me.perm = permDe(d.data()); aplicaPerm(); assinaLeads(); juntaClientes(); render(); } }, () => {}));
+  unsubs.push(onSnapshot(doc(db, 'usuarios', me.uid), d => { if (d.exists()) { const era = me.perm.todos; me.perm = permDe(d.data()); aplicaPerm(); if (era !== me.perm.todos) { assina(); vaiTab(tab); return; } assinaLeads(); juntaClientes(); render(); } }, () => {}));
   watch('clientes', collection(db, 'clientes'), s => { clientesBase = s.docs.map(d => ({ ...d.data(), doc: d.id })); juntaClientes(); refresh('clientes'); });
   watch('clientes novos', query(collection(db, 'clientesNovos'), where('vendedorId', '==', me.vendedorId)), s => { clientesNovos = s.docs.map(d => ({ ...d.data(), doc: d.id })); juntaClientes(); refresh('clientes'); });
   watch('produtos', collection(db, 'produtos'), s => { produtos = s.docs.map(d => ({ ...d.data(), id: d.id })).filter(p => p.ativo !== false); refresh('novo'); });
   watch('condições', collection(db, 'condicoes'), s => { condicoes = s.docs.map(d => ({ ...d.data(), id: d.id })).sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt-BR', { numeric: true })); refresh('novo'); });
   watch('resumo', collection(db, 'resumo'), s => { resumo = {}; s.docs.forEach(d => resumo[d.id] = d.data()); refresh('clientes'); });
-  watch('pedidos', query(collection(db, 'pedidos'), where('vendedorId', '==', me.vendedorId)), s => {
+  const meus = col => me.perm.todos ? collection(db, col) : query(collection(db, col), where('vendedorId', '==', me.vendedorId));
+  watch('pedidos', meus('pedidos'), s => {
     pedidos = s.docs.map(d => ({ ...d.data(), id: d.id, _pend: d.metadata.hasPendingWrites })).sort((a, b) => (b.criadoMs || 0) - (a.criadoMs || 0)); refresh('pedidos');
   });
-  watch('visitas', query(collection(db, 'visitas'), where('vendedorId', '==', me.vendedorId)), s => {
+  watch('visitas', meus('visitas'), s => {
     visitas = s.docs.map(d => ({ ...d.data(), id: d.id, _pend: d.metadata.hasPendingWrites })).sort((a, b) => (b.criadoMs || 0) - (a.criadoMs || 0)); refresh('visita');
   });
   assinaLeads();
@@ -121,13 +122,14 @@ const EM_ANDAMENTO = ['novo', 'recebido', 'faturado'];
 function renderPedidos() {
   const meses = [...new Set([ymd().slice(0, 7), ...pedidos.map(p => mesDe(p.data))])].sort().reverse();
   if (!meses.includes(fPed.mes)) fPed.mes = meses[0];
-  const doMes = pedidos.filter(p => mesDe(p.data) === fPed.mes);
+  const vends = [...new Map(pedidos.filter(p => p.vendedorId).map(p => [p.vendedorId, p.vendedorNome || p.vendedorId])).entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1]), 'pt-BR'));
+  const doMes = pedidos.filter(p => mesDe(p.data) === fPed.mes && (!me.perm.todos || !fPed.v || p.vendedorId === fPed.v));
   const lista = doMes.filter(p => fPed.st === 'todos' ? true : fPed.st === 'andamento' ? EM_ANDAMENTO.includes(p.status) : p.status === fPed.st);
   const validos = doMes.filter(p => p.status !== 'cancelado');
   const total = validos.reduce((a, p) => a + (+p.total || 0), 0);
   $('#t-pedidos').innerHTML = `
-    <div class="hero"><img src="img/logo.png" alt=""><div style="flex:1"><h2>Meus pedidos</h2><span>Olá, ${h(me.nome.split(' ')[0])}!</span></div>${me.perm.pedido ? '<button class="btn wheat sm" id="p-novo">+ Novo</button>' : ''}</div>
-    <label class="field"><span>Mês</span><select id="p-mes">${meses.map(m => `<option value="${m}" ${m === fPed.mes ? 'selected' : ''}>${h(mesNome(m))}</option>`).join('')}</select></label>
+    <div class="hero"><img src="img/logo.png" alt=""><div style="flex:1"><h2>${me.perm.todos ? 'Pedidos' : 'Meus pedidos'}</h2><span>Olá, ${h(me.nome.split(' ')[0])}!</span></div>${me.perm.pedido ? '<button class="btn wheat sm" id="p-novo">+ Novo</button>' : ''}</div>
+    <div class="${me.perm.todos ? 'row2' : ''}"><label class="field"><span>Mês</span><select id="p-mes">${meses.map(m => `<option value="${m}" ${m === fPed.mes ? 'selected' : ''}>${h(mesNome(m))}</option>`).join('')}</select></label>${me.perm.todos ? `<label class="field"><span>Vendedor</span><select id="p-vend"><option value="">Todos</option>${vends.map(([id, n]) => `<option value="${h(id)}" ${fPed.v === id ? 'selected' : ''}>${h(n)}</option>`).join('')}</select></label>` : ''}</div>
     <div class="kpis">
       <div class="kpi"><b>${validos.length}</b><span>pedidos</span></div>
       <div class="kpi"><b>${brl(total)}</b><span>vendido</span></div>
@@ -136,11 +138,12 @@ function renderPedidos() {
     <div class="chips">${[['todos', 'Todos'], ['andamento', 'Em andamento'], ['entregue', 'Entregues'], ['cancelado', 'Cancelados']].map(([k, t]) => `<button class="chip" data-st="${k}" aria-pressed="${fPed.st === k}">${t}</button>`).join('')}</div>
     <div class="list">${lista.length ? lista.map(p => `
       <button class="item" data-ped="${h(p.id)}">
-        <div class="t"><b>${h(p.clienteNome)}</b><span>${dataBR(p.data)} · ${(p.itens || []).map(i => i.qtd + ' ' + h(i.un)).join(' + ')}${p.entregueEm ? ' · entregue ' + dataBR(p.entregueEm) : ''}</span></div>
+        <div class="t"><b>${h(p.clienteNome)}</b><span>${dataBR(p.data)} · ${(p.itens || []).map(i => i.qtd + ' ' + h(i.un)).join(' + ')}${p.entregueEm ? ' · entregue ' + dataBR(p.entregueEm) : ''}</span>${me.perm.todos ? `<span style="display:block"><span class="tag ok">${h(p.vendedorNome || '—')}</span></span>` : ''}</div>
         <div class="r"><b>${brl(p.total)}</b>${pill(p.status)}${p._pend ? '<br><span class="tag y">aguardando sinal</span>' : ''}</div>
       </button>`).join('') : `<div class="empty"><img class="empty-logo" src="img/logo.png" alt=""><b>Nenhum pedido aqui</b>Toque em “+ Novo pedido” para digitar o primeiro.</div>`}</div>`;
   const pn = $('#p-novo'); if (pn) pn.onclick = () => { np = novoVazio(); vaiTab('novo'); };
   $('#p-mes').onchange = e => { fPed.mes = e.target.value; renderPedidos(); };
+  const pv = $('#p-vend'); if (pv) pv.onchange = e => { fPed.v = e.target.value; renderPedidos(); };
   $$('#t-pedidos [data-st]').forEach(b => b.onclick = () => { fPed.st = b.dataset.st; renderPedidos(); });
   $$('#t-pedidos [data-ped]').forEach(b => b.onclick = () => abrePedido(b.dataset.ped));
 }
@@ -156,7 +159,7 @@ function abrePedido(id) {
   const canc = p.status === 'cancelado';
   sheet(`
     <div class="spread"><button class="btn ghost" id="sh-x">← Voltar</button>${pill(p.status)}</div>
-    <div><div class="label">Pedido de ${dataBR(p.data)}</div><h2>${h(p.clienteNome)}</h2><div class="muted small">${h(docFmt(p.clienteDoc))}</div></div>
+    <div><div class="label">Pedido de ${dataBR(p.data)}</div><h2>${h(p.clienteNome)}</h2><div class="muted small">${h(docFmt(p.clienteDoc))}</div>${me.perm.todos ? `<div class="small">Vendedor: <b>${h(p.vendedorNome || '—')}</b></div>` : ''}</div>
     <div class="card">${(p.itens || []).map(i => `<div class="line"><span>${i.qtd} ${h(i.un)} · ${h(i.nome)}<br><span class="muted small">${brl(i.preco)} cada</span></span><b>${brl(i.subtotal)}</b></div>`).join('')}
       <div class="line"><b>Total</b><b>${brl(p.total)}</b></div>
       <div class="line"><span class="muted">Pagamento</span><span>${h(p.condicaoNome || '—')}</span></div>
@@ -166,10 +169,10 @@ function abrePedido(id) {
     ${p.status !== 'novo' && p.status !== 'cancelado' ? '<div class="note">Este pedido já foi recebido pela Lazinho e não pode mais ser alterado no app.</div>' : ''}
     ${p._pend ? '<div class="note warn">Este pedido ainda não subiu: está salvo no celular e envia sozinho quando houver sinal.</div>' : ''}
     <div class="stack">
-      ${p.status === 'novo' && me.perm.pedido ? '<button class="btn primary big" id="sh-edit">Editar pedido</button>' : ''}
+      ${p.status === 'novo' && me.perm.pedido && p.vendedorId === me.vendedorId ? '<button class="btn primary big" id="sh-edit">Editar pedido</button>' : ''}
       ${me.perm.pedido ? '<button class="btn wheat big" id="sh-rep">Repetir este pedido</button>' : ''}
       ${me.perm.visita ? '<button class="btn big" id="sh-vis">Registrar visita neste cliente</button>' : ''}
-      ${p.status === 'novo' ? '<button class="btn danger big" id="sh-canc">Cancelar pedido</button>' : ''}
+      ${p.status === 'novo' && p.vendedorId === me.vendedorId ? '<button class="btn danger big" id="sh-canc">Cancelar pedido</button>' : ''}
     </div>`);
   $('#sh-x').onclick = fechaSheet;
   const ed = $('#sh-edit'); if (ed) ed.onclick = () => { np = novoVazio(p.clienteDoc); np.editId = p.id; np.data = p.data; np.dataEntrega = p.dataEntrega || ''; np.obs = p.obs || ''; np.condicaoId = p.condicaoId || ''; np.itens = (p.itens || []).map(i => ({ key: i.prodId + '|' + i.un, qtd: String(i.qtd), preco: String(i.preco) })); fechaSheet(); vaiTab('novo'); };
@@ -523,7 +526,7 @@ function renderVisitas() {
     <button class="btn primary big" id="v-nova">📍 Registrar visita</button>
     <label class="field"><span>Mês</span><select id="v-mes">${meses.map(m => `<option value="${m}" ${m === fVis.mes ? 'selected' : ''}>${h(mesNome(m))}</option>`).join('')}</select></label>
     <div class="muted small">${l.length} visita(s) no mês</div>
-    <div class="list">${l.map(v => `<button class="item" data-v="${h(v.id)}"><div class="t"><b>${h(v.clienteNome)}</b><span>${dataBR(v.data)} ${new Date(v.criadoMs || 0).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} · ${(v.fotos || []).length} foto(s)${(v.precos || []).length ? ' · ' + v.precos.length + ' preço(s)' : ''}</span></div><div class="r">${v._pend ? '<span class="tag y">aguardando sinal</span>' : (v.estoqueIni || []).length && !(v.estoqueFim || []).length ? '<span class="tag y">falta estoque final</span>' : '›'}</div></button>`).join('') || '<div class="empty"><img class="empty-logo" src="img/logo.png" alt=""><b>Nenhuma visita neste mês</b>Registre a visita no cliente com fotos, preços e estoque.</div>'}</div>`;
+    <div class="list">${l.map(v => `<button class="item" data-v="${h(v.id)}"><div class="t"><b>${h(v.clienteNome)}</b>${me.perm.todos ? ` <span class="tag ok">${h(v.vendedorNome || '')}</span>` : ''}<span>${dataBR(v.data)} ${new Date(v.criadoMs || 0).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} · ${(v.fotos || []).length} foto(s)${(v.precos || []).length ? ' · ' + v.precos.length + ' preço(s)' : ''}</span></div><div class="r">${v._pend ? '<span class="tag y">aguardando sinal</span>' : (v.estoqueIni || []).length && !(v.estoqueFim || []).length ? '<span class="tag y">falta estoque final</span>' : '›'}</div></button>`).join('') || '<div class="empty"><img class="empty-logo" src="img/logo.png" alt=""><b>Nenhuma visita neste mês</b>Registre a visita no cliente com fotos, preços e estoque.</div>'}</div>`;
   $('#v-nova').onclick = () => abreVisita('');
   $('#v-mes').onchange = e => { fVis.mes = e.target.value; renderVisitas(); };
   $$('#t-visita [data-v]').forEach(b => b.onclick = () => abreDetalheVisita(b.dataset.v));
@@ -558,7 +561,7 @@ function abreDetalheVisita(id) {
     ${(v.precos || []).length ? `<div class="card"><div class="label" style="margin-bottom:6px">Preços na loja</div>${v.precos.map(p => `<div class="line"><span>${h(p.produto)}${p.marca ? ' · ' + h(p.marca) : ''}</span><b>${brl(p.preco)}</b></div>`).join('')}</div>` : ''}
     ${estoqueCard('Estoque no início da visita', v.estoqueIni || v.estoque)}
     ${estoqueCard('Estoque no final da visita', v.estoqueFim)}
-    ${me.perm.visita && !(v.estoqueFim || []).length ? '<button class="btn wheat big" id="sh-efim">Informar estoque final</button>' : ''}
+    ${me.perm.visita && v.vendedorId === me.vendedorId && !(v.estoqueFim || []).length ? '<button class="btn wheat big" id="sh-efim">Informar estoque final</button>' : ''}
     ${v.obs ? `<div class="card"><div class="label" style="margin-bottom:6px">Observação</div>${h(v.obs)}</div>` : ''}`);
   $('#sh-x').onclick = fechaSheet;
   const ef = $('#sh-efim'); if (ef) ef.onclick = () => abreEstoqueFinal(id);

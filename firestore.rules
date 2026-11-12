@@ -23,7 +23,7 @@ service cloud.firestore {
 
     // Pedidos: o vendedor cria e enxerga só os próprios; só cancela enquanto "novo"
     match /pedidos/{id} {
-      allow read: if isAdmin() || (isVendedor() && resource.data.vendedorId == meuVendedor());
+      allow read: if isAdmin() || (isVendedor() && (perm('permTodos', false) || resource.data.vendedorId == meuVendedor()));
       allow create: if isAdmin() || (isVendedor() && perm('permPedido', true)
         && request.resource.data.vendedorId == meuVendedor()
         && request.resource.data.uid == request.auth.uid
@@ -47,7 +47,7 @@ service cloud.firestore {
 
     // Visitas: o vendedor cria e enxerga só as próprias; só a Gestão altera ou apaga
     match /visitas/{id} {
-      allow read: if isAdmin() || (isVendedor() && resource.data.vendedorId == meuVendedor());
+      allow read: if isAdmin() || (isVendedor() && (perm('permTodos', false) || resource.data.vendedorId == meuVendedor()));
       allow create: if isAdmin() || (isVendedor() && perm('permVisita', true)
         && request.resource.data.vendedorId == meuVendedor()
         && request.resource.data.uid == request.auth.uid);
