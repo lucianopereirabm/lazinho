@@ -44,7 +44,11 @@ service cloud.firestore {
       allow create: if isAdmin() || (isVendedor() && perm('permVisita', true)
         && request.resource.data.vendedorId == meuVendedor()
         && request.resource.data.uid == request.auth.uid);
-      allow update, delete: if isAdmin();
+      // O vendedor só acrescenta o estoque final da própria visita
+      allow update: if isAdmin() || (isVendedor() && perm('permVisita', true)
+        && resource.data.vendedorId == meuVendedor()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estoqueFim', 'estoqueFimMs']));
+      allow delete: if isAdmin();
     }
 
     // Clientes cadastrados pelo vendedor no app (só quem tem permissão); a Gestão leva ao Portal

@@ -57,17 +57,20 @@ onAuthStateChanged(auth, async user => {
   aplicaPerm(); assina(); vaiTab(tab);
 });
 
-const permDe = d => ({ pedido: d.permPedido !== false, preco: d.permPreco !== false, visita: d.permVisita !== false, cliente: d.permCliente === true });
+const permDe = d => ({ pedido: d.permPedido !== false, preco: d.permPreco !== false, visita: d.permVisita !== false, cliente: d.permCliente === true, todos: d.permTodos === true });
 function aplicaPerm() {
   $$('#tabbar button').forEach(b => { b.hidden = (b.dataset.tab === 'novo' && !me.perm.pedido) || (b.dataset.tab === 'visita' && !me.perm.visita); });
   if ((tab === 'novo' && !me.perm.pedido) || (tab === 'visita' && !me.perm.visita)) tab = 'pedidos';
 }
-const juntaClientes = () => { const m = new Map(clientesBase.map(c => [c.doc, c])); clientesNovos.forEach(c => { if (!m.has(c.doc)) m.set(c.doc, { ...c, novo: true }); }); clientes = [...m.values()].sort(porNome); };
+const meu = c => !me || me.perm.todos || c.vendedorId === me.vendedorId;
+const endLinha = c => [[c.logradouro, c.numero].filter(Boolean).join(', '), c.bairro].filter(Boolean).join(' — ');
+const buscaTxt = c => semAcento(c.nome + ' ' + (c.fantasia || '') + ' ' + (c.municipio || '') + ' ' + endLinha(c));
+const juntaClientes = () => { const m = new Map(clientesBase.filter(meu).map(c => [c.doc, c])); clientesNovos.forEach(c => { if (!m.has(c.doc)) m.set(c.doc, { ...c, novo: true }); }); clientes = [...m.values()].sort(porNome); };
 function assina() {
   unsubs.forEach(u => { try { u(); } catch (e) {} }); unsubs = [];
   const onErr = n => e => toast('Erro ao carregar ' + n + ': ' + erroMsg(e));
   const watch = (nome, q, fn) => unsubs.push(onSnapshot(q, { includeMetadataChanges: true }, s => { fn(s); }, onErr(nome)));
-  unsubs.push(onSnapshot(doc(db, 'usuarios', me.uid), d => { if (d.exists()) { me.perm = permDe(d.data()); aplicaPerm(); render(); } }, () => {}));
+  unsubs.push(onSnapshot(doc(db, 'usuarios', me.uid), d => { if (d.exists()) { me.perm = permDe(d.data()); aplicaPerm(); juntaClientes(); render(); } }, () => {}));
   watch('clientes', collection(db, 'clientes'), s => { clientesBase = s.docs.map(d => ({ ...d.data(), doc: d.id })); juntaClientes(); refresh('clientes'); });
   watch('clientes novos', query(collection(db, 'clientesNovos'), where('vendedorId', '==', me.vendedorId)), s => { clientesNovos = s.docs.map(d => ({ ...d.data(), doc: d.id })); juntaClientes(); refresh('clientes'); });
   watch('produtos', collection(db, 'produtos'), s => { produtos = s.docs.map(d => ({ ...d.data(), id: d.id })).filter(p => p.ativo !== false); refresh('novo'); });
@@ -307,10 +310,10 @@ function escolheCliente(cb) {
   const el = $('#sheet');
   const draw = () => {
     const t = semAcento(q), dig = q.replace(/\D/g, '');
-    const l = clientes.filter(c => !t || semAcento(c.nome + ' ' + (c.fantasia || '') + ' ' + (c.municipio || '')).includes(t) || (dig.length >= 3 && c.doc.includes(dig)));
+    const l = clientes.filter(c => !t || buscaTxt(c).includes(t) || (dig.length >= 3 && c.doc.includes(dig)));
     $('#cl-lista').innerHTML = l.slice(0, 80).map(c => {
       const r = resumo[c.doc] || {};
-      return `<button class="item" data-d="${h(c.doc)}"><div class="t"><b>${h(c.fantasia || c.nome)}</b><span>${h(c.municipio || '')}${c.uf ? '/' + h(c.uf) : ''} · ${h(docFmt(c.doc))}</span></div><div class="r">${r.ultima ? '<span class="small muted">última ' + dataBR(r.ultima) + '</span>' : ''}</div></button>`;
+      return `<button class="item" data-d="${h(c.doc)}"><div class="t"><b>${h(c.fantasia || c.nome)}</b>${c.fantasia ? `<span>${h(c.nome)}</span>` : ''}<span>${h(endLinha(c))}</span><span>${h(c.municipio || '')}${c.uf ? '/' + h(c.uf) : ''} · ${h(docFmt(c.doc))}</span>${me.perm.todos ? `<span><span class="tag ${c.vendedorId && c.vendedorId !== 'venda-direta' ? 'ok' : 'y'}">${h(c.vendedorNome || 'sem vendedor')}</span></span>` : ''}</div><div class="r">${r.ultima ? '<span class="small muted">última ' + dataBR(r.ultima) + '<br>' + brl(r.ultimoValor) + '</span>' : '<span class="small muted">sem compra</span>'}</div></button>`;
     }).join('') || '<div class="empty"><img class="empty-logo" src="img/logo.png" alt=""><b>Nenhum cliente encontrado</b>' + (me.perm.cliente ? 'Use “+ Novo cliente” na aba Clientes.' : 'Se for cliente novo, peça o cadastro à Lazinho.') + '</div>';
     if (l.length > 80) $('#cl-lista').insertAdjacentHTML('beforeend', `<div class="muted small" style="text-align:center">Mostrando 80 de ${l.length}. Digite mais letras para filtrar.</div>`);
     $$('#cl-lista [data-d]').forEach(b => b.onclick = () => { fechaSheet(); cb(b.dataset.d); });
@@ -325,15 +328,15 @@ function escolheCliente(cb) {
 function renderClientes() {
   const mes = ymd().slice(0, 7), t = semAcento(fCli.q), dig = fCli.q.replace(/\D/g, '');
   const compMes = c => ((resumo[c.doc] || {}).mes === mes && (+(resumo[c.doc] || {}).mesTotal || 0) > 0);
-  let l = clientes.filter(c => !t || semAcento(c.nome + ' ' + (c.fantasia || '') + ' ' + (c.municipio || '')).includes(t) || (dig.length >= 3 && c.doc.includes(dig)));
+  let l = clientes.filter(c => !t || buscaTxt(c).includes(t) || (dig.length >= 3 && c.doc.includes(dig)));
   const nComp = clientes.filter(compMes).length;
   if (fCli.f === 'comprou') l = l.filter(compMes); else if (fCli.f === 'nao') l = l.filter(c => !compMes(c));
   $('#t-clientes').innerHTML = `
-    <div class="hero"><img src="img/logo.png" alt=""><div style="flex:1"><h2>Clientes</h2><span>Ordem alfabética · última venda</span></div>${me.perm.cliente ? '<button class="btn wheat sm" id="c-novo">+ Novo</button>' : ''}</div>
+    <div class="hero"><img src="img/logo.png" alt=""><div style="flex:1"><h2>Clientes</h2><span>${me.perm.todos ? 'Todos os clientes' : 'Seus clientes'} · última venda</span></div>${me.perm.cliente ? '<button class="btn wheat sm" id="c-novo">+ Novo</button>' : ''}</div>
     <input type="search" id="c-q" placeholder="Buscar por nome, cidade ou CNPJ" value="${h(fCli.q)}" autocomplete="off">
     <div class="chips">${[['todos', 'Todos (' + clientes.length + ')'], ['comprou', 'Compraram em ' + mesNome(mes).split('/')[0] + ' (' + nComp + ')'], ['nao', 'Não compraram no mês']].map(([k, tt]) => `<button class="chip" data-f="${k}" aria-pressed="${fCli.f === k}">${tt}</button>`).join('')}</div>
     <div class="list" id="c-lista">${l.slice(0, 120).map(c => { const r = resumo[c.doc] || {};
-      return `<button class="item" data-d="${h(c.doc)}"><div class="t"><b>${h(c.fantasia || c.nome)}${c.novo ? ' <span class="tag y">novo</span>' : ''}</b><span>${h(c.municipio || '')}${c.uf ? '/' + h(c.uf) : ''}</span></div>
+      return `<button class="item" data-d="${h(c.doc)}"><div class="t"><b>${h(c.fantasia || c.nome)}${c.novo ? ' <span class="tag y">novo</span>' : ''}</b>${c.fantasia ? `<span>${h(c.nome)}</span>` : ''}<span>${h(endLinha(c))}</span><span>${h(c.municipio || '')}${c.uf ? '/' + h(c.uf) : ''}</span>${me.perm.todos ? `<span><span class="tag ${c.vendedorId && c.vendedorId !== 'venda-direta' ? 'ok' : 'y'}">${h(c.vendedorNome || 'sem vendedor')}</span></span>` : ''}</div>
       <div class="r">${r.ultima ? `<b>${dataBR(r.ultima)}</b><span class="muted">${brl(r.ultimoValor)}</span>` : '<span class="muted">sem compra</span>'}${compMes(c) ? '<br><span class="tag ok">comprou no mês</span>' : ''}</div></button>`; }).join('') || '<div class="empty"><img class="empty-logo" src="img/logo.png" alt=""><b>Nenhum cliente</b>Os clientes aparecem depois da carga feita pela Lazinho.</div>'}</div>
     ${l.length > 120 ? `<div class="muted small" style="text-align:center">Mostrando 120 de ${l.length}. Use a busca.</div>` : ''}`;
   const cn = $('#c-novo'); if (cn) cn.onclick = () => abreNovoCliente();
@@ -347,7 +350,7 @@ function abreCliente(d) {
   const end = [c.logradouro, c.numero].filter(Boolean).join(', ') + (c.bairro ? ' — ' + c.bairro : '');
   sheet(`
     <div class="spread"><button class="btn ghost" id="sh-x">← Voltar</button><span></span></div>
-    <div><h2>${h(c.fantasia || c.nome)}</h2><div class="muted small">${h(c.nome)} · ${h(docFmt(c.doc))}</div></div>
+    <div><h2>${h(c.fantasia || c.nome)}</h2><div class="muted small">${h(c.nome)} · ${h(docFmt(c.doc))}</div>${me.perm.todos ? `<div class="small">Vendedor: <b>${h(c.vendedorNome || 'sem vendedor')}</b></div>` : ''}</div>
     <div class="card">
       ${end ? `<div class="line"><span class="muted">Endereço</span><span style="text-align:right">${h(end)}<br>${h(c.municipio || '')}${c.uf ? '/' + h(c.uf) : ''}</span></div>` : ''}
       ${c.fone ? `<div class="line"><span class="muted">Telefone</span><a href="tel:${h(c.fone)}">${h(c.fone)}</a></div>` : ''}
@@ -409,10 +412,30 @@ function renderVisitas() {
     <button class="btn primary big" id="v-nova">📍 Registrar visita</button>
     <label class="field"><span>Mês</span><select id="v-mes">${meses.map(m => `<option value="${m}" ${m === fVis.mes ? 'selected' : ''}>${h(mesNome(m))}</option>`).join('')}</select></label>
     <div class="muted small">${l.length} visita(s) no mês</div>
-    <div class="list">${l.map(v => `<button class="item" data-v="${h(v.id)}"><div class="t"><b>${h(v.clienteNome)}</b><span>${dataBR(v.data)} ${new Date(v.criadoMs || 0).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} · ${(v.fotos || []).length} foto(s)${(v.precos || []).length ? ' · ' + v.precos.length + ' preço(s)' : ''}</span></div><div class="r">${v._pend ? '<span class="tag y">aguardando sinal</span>' : '›'}</div></button>`).join('') || '<div class="empty"><img class="empty-logo" src="img/logo.png" alt=""><b>Nenhuma visita neste mês</b>Registre a visita no cliente com fotos, preços e estoque.</div>'}</div>`;
+    <div class="list">${l.map(v => `<button class="item" data-v="${h(v.id)}"><div class="t"><b>${h(v.clienteNome)}</b><span>${dataBR(v.data)} ${new Date(v.criadoMs || 0).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} · ${(v.fotos || []).length} foto(s)${(v.precos || []).length ? ' · ' + v.precos.length + ' preço(s)' : ''}</span></div><div class="r">${v._pend ? '<span class="tag y">aguardando sinal</span>' : (v.estoqueIni || []).length && !(v.estoqueFim || []).length ? '<span class="tag y">falta estoque final</span>' : '›'}</div></button>`).join('') || '<div class="empty"><img class="empty-logo" src="img/logo.png" alt=""><b>Nenhuma visita neste mês</b>Registre a visita no cliente com fotos, preços e estoque.</div>'}</div>`;
   $('#v-nova').onclick = () => abreVisita('');
   $('#v-mes').onchange = e => { fVis.mes = e.target.value; renderVisitas(); };
   $$('#t-visita [data-v]').forEach(b => b.onclick = () => abreDetalheVisita(b.dataset.v));
+}
+const estoqueCard = (tit, l) => (l || []).length ? `<div class="card"><div class="label" style="margin-bottom:6px">${tit}</div>${l.map(p => `<div class="line"><span>${h(p.nome)} (${h(p.un)})</span><b>${p.qtd}</b></div>`).join('')}</div>` : '';
+const listaEstoque = est => Object.entries(est).filter(([, q]) => q !== '' && q != null && +q >= 0).map(([k, q]) => { const o = opPorKey(k); return o ? { prodId: o.prodId, nome: o.nome, un: o.un, qtd: +q } : null; }).filter(Boolean);
+function abreEstoqueFinal(id) {
+  const v = visitas.find(x => x.id === id); if (!v) return;
+  const ops = opcoesProduto().filter((o, i, a) => a.findIndex(x => x.prodId === o.prodId && x.un === o.un) === i), est = {};
+  const ini = Object.fromEntries((v.estoqueIni || v.estoque || []).map(e => [e.prodId + '|' + e.un, e.qtd]));
+  sheet(`<div class="spread"><button class="btn ghost" id="ef-x">← Voltar</button><h3>Estoque final</h3><span></span></div>
+    <div><div class="label">${dataBR(v.data)}</div><h2>${h(v.clienteNome)}</h2></div>
+    <div class="card stack"><div class="label">Estoque no final da visita</div><div class="muted small">Quantidade que ficou no cliente depois da visita (degustação, reposição…). Deixe em branco o que não contou.</div>
+      ${ops.map(o => `<label class="field"><span>${h(o.nome)} (${h(o.un)})${ini[o.key] != null ? ' · início: ' + ini[o.key] : ''}</span><input type="number" inputmode="numeric" min="0" step="1" data-e="${h(o.key)}" placeholder="—"></label>`).join('') || '<div class="muted small">Produtos ainda não carregados.</div>'}</div>
+    <button class="btn primary big" id="ef-salvar">Salvar estoque final</button>`);
+  $('#ef-x').onclick = () => abreDetalheVisita(id);
+  $$('#sheet [data-e]').forEach(inp => inp.oninput = () => { est[inp.dataset.e] = inp.value; });
+  $('#ef-salvar').onclick = () => {
+    const l = listaEstoque(est); if (!l.length) return toast('Informe a quantidade de pelo menos um produto.');
+    v.estoqueFim = l;
+    updateDoc(doc(db, 'visitas', id), { estoqueFim: l, estoqueFimMs: Date.now() }).catch(e => toast(erroMsg(e)));
+    toast('Estoque final salvo' + (navigator.onLine ? ' e enviado.' : ' no celular. Envia quando houver sinal.')); abreDetalheVisita(id);
+  };
 }
 function abreDetalheVisita(id) {
   const v = visitas.find(x => x.id === id); if (!v) return;
@@ -422,9 +445,12 @@ function abreDetalheVisita(id) {
     ${v.gps ? `<a class="btn" target="_blank" rel="noopener" href="https://www.google.com/maps?q=${v.gps.lat},${v.gps.lng}">Ver local no mapa (±${v.gps.acc} m)</a>` : ''}
     ${(v.fotos || []).length ? `<div class="fotos">${v.fotos.map(f => `<div class="foto"><img src="${f}" alt="Foto da visita"></div>`).join('')}</div>` : ''}
     ${(v.precos || []).length ? `<div class="card"><div class="label" style="margin-bottom:6px">Preços na loja</div>${v.precos.map(p => `<div class="line"><span>${h(p.produto)}${p.marca ? ' · ' + h(p.marca) : ''}</span><b>${brl(p.preco)}</b></div>`).join('')}</div>` : ''}
-    ${(v.estoque || []).length ? `<div class="card"><div class="label" style="margin-bottom:6px">Estoque no cliente</div>${v.estoque.map(p => `<div class="line"><span>${h(p.nome)} (${h(p.un)})</span><b>${p.qtd}</b></div>`).join('')}</div>` : ''}
+    ${estoqueCard('Estoque no início da visita', v.estoqueIni || v.estoque)}
+    ${estoqueCard('Estoque no final da visita', v.estoqueFim)}
+    ${me.perm.visita && !(v.estoqueFim || []).length ? '<button class="btn wheat big" id="sh-efim">Informar estoque final</button>' : ''}
     ${v.obs ? `<div class="card"><div class="label" style="margin-bottom:6px">Observação</div>${h(v.obs)}</div>` : ''}`);
   $('#sh-x').onclick = fechaSheet;
+  const ef = $('#sh-efim'); if (ef) ef.onclick = () => abreEstoqueFinal(id);
   $$('#sheet .foto img').forEach(im => im.onclick = () => abreModal(`<img class="bigfoto" src="${im.src}" alt=""><button class="btn" onclick="document.getElementById('modal').hidden=true">Fechar</button>`));
 }
 
@@ -456,7 +482,7 @@ function desenhaVisita() {
         <div class="sub"><span></span><button class="btn ghost sm danger" data-rp="${i}">Remover</button></div></div>`).join('')}
       <datalist id="vs-prods">${[...new Set(produtos.map(p => p.nome))].sort().map(n => `<option value="${h(n)}">`).join('')}</datalist>
       <button class="btn" id="vs-addp">+ Registrar um preço</button></div>
-    <div class="card stack"><div class="label">Estoque no cliente hoje</div><div class="muted small">Quantidade que o cliente tem agora. Deixe em branco o que não contou.</div>
+    <div class="card stack"><div class="label">Estoque no início da visita</div><div class="muted small">Quantidade que o cliente tem agora, antes de repor ou de fazer degustação. Deixe em branco o que não contou. No fim da visita, abra-a na lista e toque em “Informar estoque final”.</div>
       ${ops.map(o => `<label class="field"><span>${h(o.nome)} (${h(o.un)})</span><input type="number" inputmode="numeric" min="0" step="1" data-e="${h(o.key)}" value="${h((vs.estoque[o.key] ?? ''))}" placeholder="—"></label>`).join('') || '<div class="muted small">Produtos ainda não carregados.</div>'}</div>
     <label class="field"><span>Observação</span><textarea id="vs-obs" placeholder="O que você viu, o que o cliente disse…">${h(vs.obs)}</textarea></label>
     <button class="btn primary big" id="vs-salvar">Salvar visita</button>`);
@@ -478,14 +504,14 @@ function desenhaVisita() {
 function salvaVisita() {
   const cli = cliPor(vs.clienteDoc); if (!cli) return toast('Escolha o cliente da visita.');
   const precos = vs.precos.filter(p => p.produto.trim() && +String(p.preco).replace(',', '.') > 0).map(p => ({ produto: p.produto.trim(), marca: (p.marca || '').trim(), preco: +String(p.preco).replace(',', '.') }));
-  const estoque = Object.entries(vs.estoque).filter(([, q]) => q !== '' && q != null && +q >= 0).map(([k, q]) => { const o = opPorKey(k); return o ? { prodId: o.prodId, nome: o.nome, un: o.un, qtd: +q } : null; }).filter(Boolean);
+  const estoque = listaEstoque(vs.estoque);
   if (!vs.fotos.length && !precos.length && !estoque.length && !vs.obs.trim()) return toast('Registre ao menos uma foto, preço, estoque ou observação.');
   const tam = vs.fotos.reduce((a, f) => a + f.length, 0);
   if (tam > 850000) return toast('As fotos ficaram grandes demais. Remova uma foto.');
   const id = 'vis-' + me.vendedorId + '-' + Date.now().toString(36);
-  const reg = { data: ymd(), clienteDoc: cli.doc, clienteNome: cli.fantasia || cli.nome, vendedorId: me.vendedorId, vendedorNome: me.nome, uid: me.uid, fotos: vs.fotos, precos, estoque, obs: vs.obs.trim(), gps: vs.gps || null, criadoMs: Date.now(), criadoEm: serverTimestamp() };
+  const reg = { data: ymd(), clienteDoc: cli.doc, clienteNome: cli.fantasia || cli.nome, vendedorId: me.vendedorId, vendedorNome: me.nome, uid: me.uid, fotos: vs.fotos, precos, estoqueIni: estoque, obs: vs.obs.trim(), gps: vs.gps || null, criadoMs: Date.now(), criadoEm: serverTimestamp() };
   setDoc(doc(db, 'visitas', id), reg).catch(e => toast(erroMsg(e)));
-  toast('Visita salva' + (navigator.onLine ? ' e enviada.' : ' no celular. Envia quando houver sinal.'));
+  toast('Visita salva' + (navigator.onLine ? ' e enviada.' : ' no celular. Envia quando houver sinal.') + (estoque.length ? ' Ao terminar, informe o estoque final.' : ''));
   vs = null; fechaSheet(); fVis.mes = mesDe(reg.data); vaiTab('visita');
 }
 

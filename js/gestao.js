@@ -107,7 +107,7 @@ function abaVisitas() {
       ${v.gps ? `<a class="btn sm" target="_blank" rel="noopener" href="https://www.google.com/maps?q=${v.gps.lat},${v.gps.lng}">Mapa</a>` : '<span class="tag">sem GPS</span>'}</div>
       ${(v.fotos || []).length ? `<div class="fotosg">${v.fotos.map(f => `<img src="${f}" alt="Foto da visita" data-big>`).join('')}</div>` : ''}
       ${(v.precos || []).length ? `<div class="small"><b>Preços:</b> ${v.precos.map(p => `${h(p.produto)}${p.marca ? ' (' + h(p.marca) + ')' : ''}: <b>${brl(p.preco)}</b>`).join(' · ')}</div>` : ''}
-      ${(v.estoque || []).length ? `<div class="small"><b>Estoque no cliente:</b> ${v.estoque.map(e => `${h(e.nome)} (${h(e.un)}): <b>${e.qtd}</b>`).join(' · ')}</div>` : ''}
+      ${(v.estoqueIni || v.estoque || []).length ? `<div class="small"><b>Estoque no início:</b> ${(v.estoqueIni || v.estoque).map(e => `${h(e.nome)} (${h(e.un)}): <b>${e.qtd}</b>`).join(' · ')}</div>` : ''}${(v.estoqueFim || []).length ? `<div class="small"><b>Estoque no final:</b> ${v.estoqueFim.map(e => `${h(e.nome)} (${h(e.un)}): <b>${e.qtd}</b>`).join(' · ')}</div>` : ''}
       ${v.obs ? `<div class="small"><b>Obs.:</b> ${h(v.obs)}</div>` : ''}</div>`).join('') || '<div class="empty"><b>Nenhuma visita neste período</b></div>'}</div>`;
   $('#fv-mes').onchange = e => { fV.mes = e.target.value; abaVisitas(); };
   $('#fv-vend').onchange = e => { fV.vend = e.target.value; abaVisitas(); };
