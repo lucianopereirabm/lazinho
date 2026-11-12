@@ -10,10 +10,10 @@ $('#versao').textContent = 'Lazinho Vendas ' + VERSAO;
 
 // ---------- estado ----------
 let me = null;                 // { uid, vendedorId, nome }
-let clientes = [], clientesBase = [], clientesNovos = [], produtos = [], condicoes = [], resumo = {}, pedidos = [], visitas = [];
+let clientes = [], clientesBase = [], clientesNovos = [], produtos = [], condicoes = [], resumo = {}, pedidos = [], visitas = [], vendedoresDb = [];
 let unsubs = [];
 let leads = [], leadsSub = null, fFun = { q: '', e: 'todos', t: '', c: '', mais: 60 };
-let tab = 'pedidos';
+let tab = 'inicio';
 let fPed = { mes: ymd().slice(0, 7), st: 'todos', v: '' };
 let fCli = { q: '', f: 'todos' };
 let fVis = { mes: ymd().slice(0, 7) };
@@ -40,7 +40,7 @@ $('#sem-sair').onclick = () => signOut(auth);
 $('#lg-usuario').value = lsGet('lz-usuario') || '';
 
 function mostra(id) {
-  ['carregando', 'v-login', 'v-sem', 't-pedidos', 't-novo', 't-clientes', 't-visita', 't-funil'].forEach(x => $('#' + x).hidden = x !== id);
+  ['carregando', 'v-login', 'v-sem', 't-inicio', 't-pedidos', 't-novo', 't-clientes', 't-visita', 't-funil'].forEach(x => $('#' + x).hidden = x !== id);
 }
 function paraLogin() {
   unsubs.forEach(u => { try { u(); } catch (e) {} }); unsubs = []; me = null;
@@ -78,6 +78,7 @@ function assina() {
   watch('produtos', collection(db, 'produtos'), s => { produtos = s.docs.map(d => ({ ...d.data(), id: d.id })).filter(p => p.ativo !== false); refresh('novo'); });
   watch('condições', collection(db, 'condicoes'), s => { condicoes = s.docs.map(d => ({ ...d.data(), id: d.id })).sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt-BR', { numeric: true })); refresh('novo'); });
   watch('resumo', collection(db, 'resumo'), s => { resumo = {}; s.docs.forEach(d => resumo[d.id] = d.data()); refresh('clientes'); });
+  watch('vendedores', collection(db, 'vendedores'), s => { vendedoresDb = s.docs.map(d => ({ ...d.data(), id: d.id })); refresh('inicio'); });
   const meus = col => me.perm.todos ? collection(db, col) : query(collection(db, col), where('vendedorId', '==', me.vendedorId));
   watch('pedidos', meus('pedidos'), s => {
     pedidos = s.docs.map(d => ({ ...d.data(), id: d.id, _pend: d.metadata.hasPendingWrites })).sort((a, b) => (b.criadoMs || 0) - (a.criadoMs || 0)); refresh('pedidos');
@@ -93,7 +94,7 @@ function assinaLeads() {
   unsubs.push(() => { if (leadsSub) leadsSub(); leadsSub = null; });
 }
 function refresh(t) {
-  if (!me || t !== tab) return;
+  if (!me || (t !== tab && tab !== 'inicio')) return;
   if (t === 'novo') renderNovoSePreciso(); else render();
 }
 
@@ -104,7 +105,7 @@ function vaiTab(t) {
   $$('#tabbar button').forEach(b => b.setAttribute('aria-current', b.dataset.tab === t ? 'true' : 'false'));
   mostra('t-' + t); render(); window.scrollTo(0, 0);
 }
-function render() { ({ pedidos: renderPedidos, novo: renderNovo, clientes: renderClientes, visita: renderVisitas, funil: renderFunil })[tab](); }
+function render() { ({ inicio: renderInicio, pedidos: renderPedidos, novo: renderNovo, clientes: renderClientes, visita: renderVisitas, funil: renderFunil })[tab](); }
 
 // ---------- utilidades ----------
 const nomeCli = d => { const c = clientes.find(x => x.doc === d); return c ? (c.fantasia || c.nome) : d; };
@@ -116,6 +117,47 @@ function opcoesProduto() {
 }
 const opPorKey = k => opcoesProduto().find(o => o.key === k);
 const pill = s => { const i = statusInfo(s); return `<span class="pill ${i.c}">${h(i.t)}</span>`; };
+
+
+// ---------- INÍCIO (painel do mês) ----------
+// Mesma regra de comissão do Portal: % cadastrado; sem cadastro, Marlene 7%, venda direta 0%, demais 5%
+const pctVend = id => { const v = vendedoresDb.find(x => x.id === id); if (v && v.comissaoPct != null && v.comissaoPct !== '') return +v.comissaoPct || 0; return id === 'marlene' ? 7 : (id === 'venda-direta' ? 0 : 5); };
+function renderInicio() {
+  const mes = ymd().slice(0, 7), sup = me.perm.todos;
+  const fat = d => { const r = resumo[d]; return r && r.mes === mes ? (+r.mesTotal || 0) : 0; };
+  const comprou = c => fat(c.doc) > 0;
+  const comp = clientes.filter(comprou), nao = clientes.filter(c => !comprou(c));
+  const docsMeus = new Set(clientes.map(c => c.doc));
+  const totFat = sup ? Object.keys(resumo).reduce((t, d) => t + fat(d), 0) : clientes.reduce((t, c) => t + fat(c.doc), 0);
+  const porV = new Map();
+  clientes.forEach(c => { const id = c.vendedorId || '__sem', g = porV.get(id) || { id, fat: 0, n: 0, nc: 0 }; g.n++; if (comprou(c)) { g.nc++; g.fat += fat(c.doc); } porV.set(id, g); });
+  if (sup) { const sem = Object.keys(resumo).filter(d => !docsMeus.has(d)).reduce((t, d) => t + fat(d), 0); if (sem > 0) { const g = porV.get('__sem') || { id: '__sem', fat: 0, n: 0, nc: 0 }; g.fat += sem; porV.set('__sem', g); } }
+  const nomeV = id => id === '__sem' ? 'Venda direta / sem vendedor' : ((vendedoresDb.find(v => v.id === id) || {}).nome || id);
+  const linhas = [...porV.values()].map(g => ({ ...g, pct: g.id === '__sem' ? 0 : pctVend(g.id) })).map(g => ({ ...g, com: r2(g.fat * g.pct / 100) })).sort((a, b) => b.fat - a.fat);
+  const pctMeu = pctVend(me.vendedorId), com = sup ? r2(linhas.reduce((t, g) => t + g.com, 0)) : r2(totFat * pctMeu / 100);
+  const doMes = pedidos.filter(p => mesDe(p.data) === mes && p.status !== 'cancelado');
+  const aFat = pedidos.filter(p => ['novo', 'recebido'].includes(p.status));
+  const soma = a => a.reduce((t, p) => t + (+p.total || 0), 0);
+  const pc = clientes.length ? Math.round(comp.length * 100 / clientes.length) : 0;
+  const ordem = [...nao].sort((a, b) => String((resumo[a.doc] || {}).ultima || '').localeCompare(String((resumo[b.doc] || {}).ultima || '')));
+  $('#t-inicio').innerHTML = `
+    <div class="hero"><img src="img/logo.png" alt=""><div style="flex:1"><h2>Olá, ${h((me.nome || '').split(' ')[0] || 'vendedor')}!</h2><span>${sup ? 'Painel da empresa toda' : 'Seu painel'} · ${h(mesNome(mes))}</span></div></div>
+    <div class="card dash-main"><span class="muted small">${sup ? 'Faturado no mês (empresa)' : 'Faturado no mês'}</span><b class="dash-big">${brl(totFat)}</b>
+      <div class="line"><span class="muted">${sup ? 'Comissões do mês (estimativa)' : 'Sua comissão (' + pctMeu + '%)'}</span><b>${brl(com)}</b></div>
+      <div class="muted small">Comissão estimada sobre o que já foi faturado no mês; o valor final é confirmado pela Lazinho.</div></div>
+    <div class="kpis dash-k2">
+      <div class="kpi"><b>${comp.length}</b><span>Clientes que compraram</span></div>
+      <div class="kpi"><b>${nao.length}</b><span>Ainda não compraram</span></div></div>
+    <div class="card"><div class="line"><span class="muted">Clientes ativos no mês</span><b>${pc}% (${comp.length} de ${clientes.length})</b></div><div class="dash-bar"><i style="width:${pc}%"></i></div></div>
+    <div class="card"><div class="label" style="margin-bottom:6px">Pedidos feitos no app</div>
+      <div class="line"><span class="muted">Pedidos no mês</span><b>${doMes.length} · ${brl(soma(doMes))}</b></div>
+      <div class="line"><span class="muted">Aguardando faturar</span><b>${aFat.length} · ${brl(soma(aFat))}</b></div></div>
+    ${sup && linhas.length ? `<div class="card"><div class="label" style="margin-bottom:6px">Por vendedor</div>${linhas.map(g => `<div class="line"><span>${h(nomeV(g.id))}<br><span class="muted small">${g.nc} de ${g.n} clientes compraram${g.pct ? ' · ' + g.pct + '%' : ''}</span></span><span style="text-align:right"><b>${brl(g.fat)}</b>${g.com ? `<br><span class="muted small">comissão ${brl(g.com)}</span>` : ''}</span></div>`).join('')}</div>` : ''}
+    <div class="spread"><div class="label">${nao.length ? 'Ainda não compraram em ' + h(mesNome(mes).split('/')[0]) : 'Todos os clientes já compraram no mês 🎉'}</div>${nao.length > 8 ? '<button class="btn ghost sm" id="in-ver">Ver todos</button>' : ''}</div>
+    <div class="list">${ordem.slice(0, 8).map(c => { const r = resumo[c.doc] || {}; return `<button class="item" data-d="${h(c.doc)}"><div class="t"><b>${h(c.fantasia || c.nome)}</b><span>${h(c.municipio || '')}${c.uf ? '/' + h(c.uf) : ''}</span></div><div class="r">${r.ultima ? `<span class="muted">última compra</span><b>${dataBR(r.ultima)}</b>` : '<span class="muted">sem compra</span>'}</div></button>`; }).join('')}</div>`;
+  const vt = $('#in-ver'); if (vt) vt.onclick = () => { fCli.f = 'nao'; vaiTab('clientes'); };
+  $$('#t-inicio [data-d]').forEach(b => b.onclick = () => abreCliente(b.dataset.d));
+}
 
 // ---------- PEDIDOS ----------
 const EM_ANDAMENTO = ['novo', 'recebido', 'faturado'];

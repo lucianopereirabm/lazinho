@@ -182,3 +182,10 @@ tr.click{cursor:pointer} tr.click:hover td{background:var(--sunk)}
 @media (max-width:480px){.brand-logo{height:40px}.brand small{display:none}.top .who small,.top .who{font-size:11px}.top .who b{font-size:14px}.top-in{padding:8px 10px}}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .row2:empty{display:none}
+
+.dash-main{display:flex;flex-direction:column;gap:4px;border-left:4px solid var(--wheat)}
+.dash-big{font-family:var(--f-display);font-size:34px;line-height:1.1;color:var(--red)}
+.dash-k2{grid-template-columns:repeat(2,1fr)}
+.dash-bar{height:10px;border-radius:999px;background:var(--sunk);overflow:hidden;margin-top:6px}
+.dash-bar i{display:block;height:100%;background:var(--ok);border-radius:999px}
+.tabbar button{font-size:11px;padding-left:2px;padding-right:2px}
