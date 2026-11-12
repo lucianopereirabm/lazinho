@@ -89,7 +89,7 @@ function assina() {
 }
 function assinaLeads() {
   if (leadsSub || !me || !me.perm.todos) return;
-  leadsSub = onSnapshot(collection(db, 'leads'), { includeMetadataChanges: true }, s => { leads = s.docs.map(d => ({ ...d.data(), id: d.id })); refresh('funil'); }, e => toast('Erro ao carregar o funil: ' + erroMsg(e)));
+  leadsSub = onSnapshot(collection(db, 'leads'), { includeMetadataChanges: true }, s => { leads = s.docs.map(d => { const x = d.data(); return { ...x, id: d.id, etapa: etapaDe(x.etapa) }; }); refresh('funil'); }, e => toast('Erro ao carregar o funil: ' + erroMsg(e)));
   unsubs.push(() => { if (leadsSub) leadsSub(); leadsSub = null; });
 }
 function refresh(t) {
@@ -310,6 +310,9 @@ function salvaPedido() {
     toast('Pedido alterado.');
   } else {
     setDoc(doc(db, 'pedidos', id), reg).catch(e => toast(erroMsg(e)));
+    // pedido para um contato do funil = virou cliente
+    const lf = leads.find(x => x.etapa !== 'cliente' && x.clienteDoc && soDig(x.clienteDoc) === soDig(cli.doc));
+    if (lf) gravaLead(lf, { etapa: 'cliente' }, [histItem('etapa', 'Virou cliente (pedido de ' + brl(total) + ')')]);
     toast('Pedido de ' + brl(total) + ' salvo' + (navigator.onLine ? ' e enviado.' : ' no celular. Envia quando houver sinal.'));
   }
   np = novoVazio(); fechaSheet(); fPed.mes = mesDe(reg.data); fPed.st = 'todos'; vaiTab('pedidos');
@@ -418,7 +421,8 @@ function abreNovoCliente(pre = {}, apos = null) {
 
 
 // ---------- FUNIL DE VENDAS (só supervisores) ----------
-const ETAPAS = [['a_contatar', 'A contatar'], ['contato', 'Contato feito'], ['amostra', 'Amostra / catálogo'], ['negociando', 'Negociando'], ['cliente', 'Virou cliente'], ['perdido', 'Não rolou']];
+const ETAPAS = [['a_contatar', 'A contatar'], ['contato', 'Contato feito'], ['cliente', 'Virou cliente'], ['perdido', 'Não rolou']];
+const etapaDe = e => (e === 'amostra' || e === 'negociando') ? 'contato' : (e || 'a_contatar');
 const TIPOS = [['padaria', 'Padaria'], ['supermercado', 'Supermercado'], ['minimercado', 'Minimercado / mercearia'], ['restaurante', 'Restaurante'], ['lanchonete', 'Lanchonete / cafeteria'], ['acougue', 'Açougue / empório'], ['outro', 'Outro']];
 const nomeEtapa = k => (ETAPAS.find(e => e[0] === k) || ['', k || ''])[1];
 const nomeTipo = k => (TIPOS.find(e => e[0] === (k || 'padaria')) || ['', k || ''])[1];
@@ -441,7 +445,7 @@ function renderFunil() {
   const opt = (arr, cur, todos) => `<option value="">${todos}</option>` + arr.map(([v, n]) => `<option value="${h(v)}" ${cur === v ? 'selected' : ''}>${h(n)}</option>`).join('');
   $('#t-funil').innerHTML = `
     <div class="hero"><img src="img/logo.png" alt=""><div style="flex:1"><h2>Funil de vendas</h2><span>Prospecção · ${leads.length} contatos</span></div><button class="btn wheat sm" id="f-novo">+ Novo</button></div>
-    <div class="kpis"><div class="kpi"><b>${cnt('a_contatar')}</b><span>a contatar</span></div><div class="kpi"><b>${cnt('contato') + cnt('amostra') + cnt('negociando')}</b><span>em andamento</span></div><div class="kpi"><b style="${atras ? 'color:var(--crit)' : ''}">${atras}</b><span>retornos hoje/atrasados</span></div></div>
+    <div class="kpis"><div class="kpi"><b>${cnt('a_contatar')}</b><span>a contatar</span></div><div class="kpi"><b>${cnt('contato')}</b><span>contato feito</span></div><div class="kpi"><b style="${atras ? 'color:var(--crit)' : ''}">${atras}</b><span>retornos hoje/atrasados</span></div></div>
     <input type="search" id="f-q" placeholder="Buscar nome, bairro, telefone…" value="${h(fFun.q)}" autocomplete="off">
     <div class="chips">${[['todos', 'Todos (' + leads.length + ')'], ...ETAPAS.map(([k, n]) => [k, n + ' (' + cnt(k) + ')'])].map(([k, n]) => `<button class="chip" data-e="${k}" aria-pressed="${fFun.e === k}">${h(n)}</button>`).join('')}</div>
     <div class="row2"><label class="field"><span>Tipo</span><select id="f-t">${opt(TIPOS, fFun.t, 'Todos')}</select></label><label class="field"><span>Cidade</span><select id="f-c">${opt(cidades.map(c => [c, c]), fFun.c, 'Todas')}</select></label></div>
