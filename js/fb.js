@@ -7,7 +7,7 @@ import {
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager, persistentSingleTabManager, serverTimestamp,
   doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, collection, query, where, orderBy, limit,
-  onSnapshot, writeBatch, deleteField
+  onSnapshot, writeBatch, deleteField, waitForPendingWrites, enableNetwork
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
 export const firebaseConfig = {
@@ -18,7 +18,7 @@ export const firebaseConfig = {
   messagingSenderId: "704082318801",
   appId: "1:704082318801:web:d33a1ce7c1a579888b7cf0"
 };
-export const VERSAO = 'v4';
+export const VERSAO = 'v5';
 
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
@@ -159,4 +159,18 @@ export function avisoRede() {
   if (!b) { b = document.createElement('div'); b.id = 'rede'; b.className = 'rede off'; b.hidden = true; document.body.appendChild(b); }
   const att = () => { if (navigator.onLine) { b.hidden = true; } else { b.hidden = false; b.textContent = 'Sem internet — o que você registrar fica salvo e sobe sozinho quando o sinal voltar.'; } };
   addEventListener('online', att); addEventListener('offline', att); att();
+}
+
+// Botão "Atualizar": envia o que está esperando sinal e relê tudo do servidor.
+export async function atualizaAgora(btn, recarrega) {
+  if (btn) { btn.disabled = true; btn.classList.add('girando'); }
+  try {
+    if (!navigator.onLine) { toast('Sem internet agora. Tente de novo quando o sinal voltar.'); return; }
+    try { await enableNetwork(db); } catch (e) {}
+    await Promise.race([waitForPendingWrites(db), new Promise((_, r) => setTimeout(() => r(new Error('demorou')), 8000))]);
+    if (recarrega) recarrega();
+    toast('Atualizado às ' + new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
+  } catch (e) {
+    toast(e && e.message === 'demorou' ? 'Sinal fraco: o que está pendente sobe assim que o sinal melhorar.' : 'Não consegui atualizar: ' + erroMsg(e));
+  } finally { if (btn) { btn.disabled = false; btn.classList.remove('girando'); } }
 }

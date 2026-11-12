@@ -2,7 +2,7 @@
 import {
   auth, db, signInWithEmailAndPassword, signOut, onAuthStateChanged, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, onSnapshot, writeBatch,
   criarAcessoVendedor, apagarContaVendedor, usuarioDeNome, $, $$, h, semAcento, porNome, ymd, mesDe, dataBR, dataHoraBR, brl, r2, mesNome, docFmt,
-  toast, abreModal, fechaModal, confirma, erroMsg, statusInfo, STATUS, VERSAO
+  toast, abreModal, fechaModal, confirma, erroMsg, atualizaAgora, statusInfo, STATUS, VERSAO
 } from './fb.js';
 
 const ADMIN_UID = 'z0MjWvFOXqUqWPS2I0vD6mBxOOR2';
@@ -17,12 +17,13 @@ $('#f-adm').addEventListener('submit', async e => {
   catch (err) { m.textContent = erroMsg(err); }
 });
 $('#sair').onclick = () => signOut(auth);
+$('#atualiza').onclick = () => atualizaAgora($('#atualiza'), () => { assina(); desenha(); });
 const mostra = x => { $('#g-login').hidden = x !== 'login'; $('#g-app').hidden = x !== 'app'; };
 onAuthStateChanged(auth, user => {
   unsubs.forEach(u => { try { u(); } catch (e) {} }); unsubs = [];
-  if (!user) { $('#sair').hidden = true; $('#quem').innerHTML = ''; mostra('login'); return; }
+  if (!user) { $('#sair').hidden = true; $('#atualiza').hidden = true; $('#quem').innerHTML = ''; mostra('login'); return; }
   if (user.uid !== ADMIN_UID) { $('#adm-msg').textContent = 'Este login não é de administrador. Vendedores usam o app (index).'; signOut(auth); return; }
-  $('#sair').hidden = false; $('#quem').innerHTML = '<b>Luciano</b>Administrador'; mostra('app'); assina(); desenha();
+  $('#sair').hidden = false; $('#atualiza').hidden = false; $('#quem').innerHTML = '<b>Luciano</b>Administrador'; mostra('app'); assina(); desenha();
 });
 function assina() {
   const w = (nome, c, fn) => unsubs.push(onSnapshot(c, s => { fn(s); desenha(); }, e => toast('Erro ao carregar ' + nome + ': ' + erroMsg(e))));

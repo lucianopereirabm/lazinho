@@ -2,7 +2,7 @@
 import {
   auth, db, signInWithEmailAndPassword, signOut, onAuthStateChanged, doc, getDoc, setDoc, updateDoc, collection, query, where, onSnapshot,
   serverTimestamp, emailVendedor, senhaVendedor, usuarioDeNome, $, $$, h, semAcento, porNome, ymd, mesDe, dataBR, dataHoraBR, brl, r2, mesNome,
-  docFmt, toast, abreModal, fechaModal, confirma, erroMsg, pegaGPS, reduzFoto, avisoRede, statusInfo, VERSAO, lsGet, lsSet
+  docFmt, toast, abreModal, fechaModal, confirma, erroMsg, pegaGPS, reduzFoto, avisoRede, atualizaAgora, statusInfo, VERSAO, lsGet, lsSet
 } from './fb.js';
 
 avisoRede();
@@ -34,6 +34,7 @@ $('#f-login').addEventListener('submit', async e => {
   $('#lg-btn').disabled = false; $('#lg-btn').textContent = 'Entrar';
 });
 $('#sair').onclick = async () => { if (await confirma('Sair do app?', 'Sair')) await signOut(auth); };
+$('#atualiza').onclick = () => atualizaAgora($('#atualiza'), assina);
 $('#sem-sair').onclick = () => signOut(auth);
 $('#lg-usuario').value = lsGet('lz-usuario') || '';
 
@@ -42,7 +43,7 @@ function mostra(id) {
 }
 function paraLogin() {
   unsubs.forEach(u => { try { u(); } catch (e) {} }); unsubs = []; me = null;
-  $('#tabbar').hidden = true; $('#sair').hidden = true; $('#quem').innerHTML = ''; mostra('v-login');
+  $('#tabbar').hidden = true; $('#sair').hidden = true; $('#atualiza').hidden = true; $('#quem').innerHTML = ''; mostra('v-login');
 }
 
 onAuthStateChanged(auth, async user => {
@@ -52,7 +53,7 @@ onAuthStateChanged(auth, async user => {
     if (!u.exists() || !u.data().vendedorId) { mostra('v-sem'); $('#quem').innerHTML = ''; return; }
     me = { uid: user.uid, vendedorId: u.data().vendedorId, nome: u.data().nome || '', perm: permDe(u.data()) };
   } catch (e) { mostra('v-sem'); return; }
-  $('#quem').innerHTML = `<b>${h(me.nome.split(' ')[0])}</b>Vendedor`; $('#sair').hidden = false; $('#tabbar').hidden = false;
+  $('#quem').innerHTML = `<b>${h(me.nome.split(' ')[0])}</b>Vendedor`; $('#sair').hidden = false; $('#atualiza').hidden = false; $('#tabbar').hidden = false;
   aplicaPerm(); assina(); vaiTab(tab);
 });
 
