@@ -1,6 +1,6 @@
 // Gestão — Lazinho Vendas (administrador)
 import {
-  auth, db, signInWithEmailAndPassword, signOut, onAuthStateChanged, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, onSnapshot, writeBatch,
+  auth, db, sendPasswordResetEmail, signInWithEmailAndPassword, signOut, onAuthStateChanged, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, onSnapshot, writeBatch,
   criarAcessoVendedor, apagarContaVendedor, usuarioDeNome, $, $$, h, semAcento, porNome, ymd, mesDe, dataBR, dataHoraBR, brl, r2, mesNome, docFmt,
   toast, abreModal, fechaModal, confirma, erroMsg, atualizaAgora, statusInfo, STATUS, VERSAO
 } from './fb.js';
@@ -18,6 +18,12 @@ $('#f-adm').addEventListener('submit', async e => {
   try { await signInWithEmailAndPassword(auth, $('#adm-email').value.trim(), $('#adm-senha').value); }
   catch (err) { m.textContent = erroMsg(err); }
 });
+$('#adm-esqueci').onclick = async () => {
+  const m = $('#adm-msg'), em = $('#adm-email').value.trim();
+  if (!em) { m.textContent = 'Digite seu e-mail acima e toque de novo em “Esqueci a senha”.'; return; }
+  try { await sendPasswordResetEmail(auth, em); m.textContent = 'Enviei um e-mail para ' + em + ' com o link para criar uma senha nova (veja também o spam).'; }
+  catch (err) { m.textContent = (err.code || '').includes('user-not-found') ? 'Esse e-mail não é do administrador.' : erroMsg(err); }
+};
 $('#sair').onclick = () => signOut(auth);
 $('#atualiza').onclick = () => atualizaAgora($('#atualiza'), () => { assina(); desenha(); });
 const mostra = x => { $('#g-login').hidden = x !== 'login'; $('#g-app').hidden = x !== 'app'; };
