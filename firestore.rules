@@ -38,6 +38,13 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // Funil de vendas: só supervisores (permTodos) leem, criam e alteram; a Gestão leva ao Portal
+    match /leads/{id} {
+      allow read: if isAdmin() || (isVendedor() && perm('permTodos', false));
+      allow create, update: if isAdmin() || (isVendedor() && perm('permTodos', false) && request.resource.data.pendente == true);
+      allow delete: if isAdmin();
+    }
+
     // Visitas: o vendedor cria e enxerga só as próprias; só a Gestão altera ou apaga
     match /visitas/{id} {
       allow read: if isAdmin() || (isVendedor() && resource.data.vendedorId == meuVendedor());
@@ -54,7 +61,7 @@ service cloud.firestore {
     // Clientes cadastrados pelo vendedor no app (só quem tem permissão); a Gestão leva ao Portal
     match /clientesNovos/{id} {
       allow read: if isAdmin() || (isVendedor() && resource.data.vendedorId == meuVendedor());
-      allow create: if isAdmin() || (isVendedor() && perm('permCliente', false)
+      allow create: if isAdmin() || (isVendedor() && (perm('permCliente', false) || perm('permTodos', false))
         && request.resource.data.vendedorId == meuVendedor()
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.status == 'novo');

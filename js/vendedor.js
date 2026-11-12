@@ -12,6 +12,7 @@ $('#versao').textContent = 'Lazinho Vendas ' + VERSAO;
 let me = null;                 // { uid, vendedorId, nome }
 let clientes = [], clientesBase = [], clientesNovos = [], produtos = [], condicoes = [], resumo = {}, pedidos = [], visitas = [];
 let unsubs = [];
+let leads = [], leadsSub = null, fFun = { q: '', e: 'todos', t: '', c: '', mais: 60 };
 let tab = 'pedidos';
 let fPed = { mes: ymd().slice(0, 7), st: 'todos' };
 let fCli = { q: '', f: 'todos' };
@@ -39,7 +40,7 @@ $('#sem-sair').onclick = () => signOut(auth);
 $('#lg-usuario').value = lsGet('lz-usuario') || '';
 
 function mostra(id) {
-  ['carregando', 'v-login', 'v-sem', 't-pedidos', 't-novo', 't-clientes', 't-visita'].forEach(x => $('#' + x).hidden = x !== id);
+  ['carregando', 'v-login', 'v-sem', 't-pedidos', 't-novo', 't-clientes', 't-visita', 't-funil'].forEach(x => $('#' + x).hidden = x !== id);
 }
 function paraLogin() {
   unsubs.forEach(u => { try { u(); } catch (e) {} }); unsubs = []; me = null;
@@ -53,24 +54,25 @@ onAuthStateChanged(auth, async user => {
     if (!u.exists() || !u.data().vendedorId) { mostra('v-sem'); $('#quem').innerHTML = ''; return; }
     me = { uid: user.uid, vendedorId: u.data().vendedorId, nome: u.data().nome || '', perm: permDe(u.data()) };
   } catch (e) { mostra('v-sem'); return; }
-  $('#quem').innerHTML = `<b>${h(me.nome.split(' ')[0])}</b>Vendedor`; $('#sair').hidden = false; $('#atualiza').hidden = false; $('#tabbar').hidden = false;
+  $('#quem').innerHTML = `<b>${h(me.nome.split(' ')[0])}</b>${me.perm.todos ? 'Supervisor' : 'Vendedor'}`; $('#sair').hidden = false; $('#atualiza').hidden = false; $('#tabbar').hidden = false;
   aplicaPerm(); assina(); vaiTab(tab);
 });
 
-const permDe = d => ({ pedido: d.permPedido !== false, preco: d.permPreco !== false, visita: d.permVisita !== false, cliente: d.permCliente === true, todos: d.permTodos === true });
+const permDe = d => ({ pedido: d.permPedido !== false, preco: d.permPreco !== false, visita: d.permVisita !== false, cliente: d.permCliente === true || d.permTodos === true, todos: d.permTodos === true });
 function aplicaPerm() {
-  $$('#tabbar button').forEach(b => { b.hidden = (b.dataset.tab === 'novo' && !me.perm.pedido) || (b.dataset.tab === 'visita' && !me.perm.visita); });
-  if ((tab === 'novo' && !me.perm.pedido) || (tab === 'visita' && !me.perm.visita)) tab = 'pedidos';
+  { const q = $('#quem b'); if (q) q.nextSibling.textContent = me.perm.todos ? 'Supervisor' : 'Vendedor'; }
+  $$('#tabbar button').forEach(b => { b.hidden = (b.dataset.tab === 'novo' && !me.perm.pedido) || (b.dataset.tab === 'visita' && !me.perm.visita) || (b.dataset.tab === 'funil' && !me.perm.todos); });
+  if ((tab === 'novo' && !me.perm.pedido) || (tab === 'visita' && !me.perm.visita) || (tab === 'funil' && !me.perm.todos)) tab = 'pedidos';
 }
 const meu = c => !me || me.perm.todos || c.vendedorId === me.vendedorId;
 const endLinha = c => [[c.logradouro, c.numero].filter(Boolean).join(', '), c.bairro].filter(Boolean).join(' — ');
 const buscaTxt = c => semAcento(c.nome + ' ' + (c.fantasia || '') + ' ' + (c.municipio || '') + ' ' + endLinha(c));
 const juntaClientes = () => { const m = new Map(clientesBase.filter(meu).map(c => [c.doc, c])); clientesNovos.forEach(c => { if (!m.has(c.doc)) m.set(c.doc, { ...c, novo: true }); }); clientes = [...m.values()].sort(porNome); };
 function assina() {
-  unsubs.forEach(u => { try { u(); } catch (e) {} }); unsubs = [];
+  unsubs.forEach(u => { try { u(); } catch (e) {} }); unsubs = []; leadsSub = null; leads = [];
   const onErr = n => e => toast('Erro ao carregar ' + n + ': ' + erroMsg(e));
   const watch = (nome, q, fn) => unsubs.push(onSnapshot(q, { includeMetadataChanges: true }, s => { fn(s); }, onErr(nome)));
-  unsubs.push(onSnapshot(doc(db, 'usuarios', me.uid), d => { if (d.exists()) { me.perm = permDe(d.data()); aplicaPerm(); juntaClientes(); render(); } }, () => {}));
+  unsubs.push(onSnapshot(doc(db, 'usuarios', me.uid), d => { if (d.exists()) { me.perm = permDe(d.data()); aplicaPerm(); assinaLeads(); juntaClientes(); render(); } }, () => {}));
   watch('clientes', collection(db, 'clientes'), s => { clientesBase = s.docs.map(d => ({ ...d.data(), doc: d.id })); juntaClientes(); refresh('clientes'); });
   watch('clientes novos', query(collection(db, 'clientesNovos'), where('vendedorId', '==', me.vendedorId)), s => { clientesNovos = s.docs.map(d => ({ ...d.data(), doc: d.id })); juntaClientes(); refresh('clientes'); });
   watch('produtos', collection(db, 'produtos'), s => { produtos = s.docs.map(d => ({ ...d.data(), id: d.id })).filter(p => p.ativo !== false); refresh('novo'); });
@@ -82,6 +84,12 @@ function assina() {
   watch('visitas', query(collection(db, 'visitas'), where('vendedorId', '==', me.vendedorId)), s => {
     visitas = s.docs.map(d => ({ ...d.data(), id: d.id, _pend: d.metadata.hasPendingWrites })).sort((a, b) => (b.criadoMs || 0) - (a.criadoMs || 0)); refresh('visita');
   });
+  assinaLeads();
+}
+function assinaLeads() {
+  if (leadsSub || !me || !me.perm.todos) return;
+  leadsSub = onSnapshot(collection(db, 'leads'), { includeMetadataChanges: true }, s => { leads = s.docs.map(d => ({ ...d.data(), id: d.id })); refresh('funil'); }, e => toast('Erro ao carregar o funil: ' + erroMsg(e)));
+  unsubs.push(() => { if (leadsSub) leadsSub(); leadsSub = null; });
 }
 function refresh(t) {
   if (!me || t !== tab) return;
@@ -95,7 +103,7 @@ function vaiTab(t) {
   $$('#tabbar button').forEach(b => b.setAttribute('aria-current', b.dataset.tab === t ? 'true' : 'false'));
   mostra('t-' + t); render(); window.scrollTo(0, 0);
 }
-function render() { ({ pedidos: renderPedidos, novo: renderNovo, clientes: renderClientes, visita: renderVisitas })[tab](); }
+function render() { ({ pedidos: renderPedidos, novo: renderNovo, clientes: renderClientes, visita: renderVisitas, funil: renderFunil })[tab](); }
 
 // ---------- utilidades ----------
 const nomeCli = d => { const c = clientes.find(x => x.doc === d); return c ? (c.fantasia || c.nome) : d; };
@@ -368,7 +376,7 @@ function abreCliente(d) {
 }
 
 // ---------- NOVO CLIENTE (só com permissão) ----------
-function abreNovoCliente() {
+function abreNovoCliente(pre = {}, apos = null) {
   const campo = (id, rot, ph = '', tipo = 'text') => `<label class="field"><span>${rot}</span><input type="${tipo}" id="${id}" placeholder="${ph}" autocomplete="off"></label>`;
   sheet(`<div class="spread"><button class="btn ghost" id="nc-x">← Voltar</button><h3>Novo cliente</h3><span></span></div>
     <div class="note">Cadastro enviado à Lazinho. Você já pode digitar pedido para este cliente. Conferimos os dados fiscais depois.</div>
@@ -378,6 +386,7 @@ function abreNovoCliente() {
     ${campo('nc-cep', 'CEP')}${campo('nc-log', 'Rua / avenida')}${campo('nc-num', 'Número')}${campo('nc-bai', 'Bairro')}${campo('nc-mun', 'Município *')}${campo('nc-uf', 'UF *', 'MG')}
     <button class="btn primary big" id="nc-salvar">Salvar cliente</button>`);
   const v = id => $('#' + id).value.trim();
+  Object.entries({ 'nc-nome': pre.nome, 'nc-fone': pre.fone, 'nc-cep': pre.cep, 'nc-log': pre.log, 'nc-num': pre.num, 'nc-bai': pre.bai, 'nc-mun': pre.mun, 'nc-uf': pre.uf }).forEach(([k, val]) => { if (val) $('#' + k).value = val; });
   $('#nc-x').onclick = fechaSheet;
   $('#nc-busca').onclick = async () => {
     const d = v('nc-doc').replace(/\D/g, ''); const m = $('#nc-msg');
@@ -398,8 +407,110 @@ function abreNovoCliente() {
     if (clientes.some(c => c.doc === d)) return toast('Esse cliente já está cadastrado.');
     const reg = { doc: d, nome, fantasia: v('nc-fant'), fone: v('nc-fone'), email: v('nc-mail'), cep: v('nc-cep').replace(/\D/g, ''), logradouro: v('nc-log'), numero: v('nc-num'), bairro: v('nc-bai'), municipio: mun, uf, vendedorId: me.vendedorId, vendedorNome: me.nome, uid: me.uid, status: 'novo', criadoMs: Date.now() };
     setDoc(doc(db, 'clientesNovos', d), reg).catch(e => toast(erroMsg(e)));
+    if (!clientesNovos.some(c => c.doc === d)) { clientesNovos.push({ ...reg, doc: d }); juntaClientes(); }
     toast('Cliente salvo. Já pode digitar pedido para ele.'); fechaSheet();
+    if (apos) apos(d);
   };
+}
+
+
+// ---------- FUNIL DE VENDAS (só supervisores) ----------
+const ETAPAS = [['a_contatar', 'A contatar'], ['contato', 'Contato feito'], ['amostra', 'Amostra / catálogo'], ['negociando', 'Negociando'], ['cliente', 'Virou cliente'], ['perdido', 'Não rolou']];
+const TIPOS = [['padaria', 'Padaria'], ['supermercado', 'Supermercado'], ['minimercado', 'Minimercado / mercearia'], ['restaurante', 'Restaurante'], ['lanchonete', 'Lanchonete / cafeteria'], ['acougue', 'Açougue / empório'], ['outro', 'Outro']];
+const nomeEtapa = k => (ETAPAS.find(e => e[0] === k) || ['', k || ''])[1];
+const nomeTipo = k => (TIPOS.find(e => e[0] === (k || 'padaria')) || ['', k || ''])[1];
+const soDig = t => String(t || '').replace(/\D/g, '');
+const waNum = l => { let d = soDig(l.telefone); if (!d) return ''; if (d.length <= 11) d = '55' + d; return d; };
+const igUser = v => String(v || '').trim().replace(/^https?:\/\/(www\.)?instagram\.com\//i, '').replace(/^@/, '').split(/[\/?#\s]/)[0].replace(/[^A-Za-z0-9._]/g, '');
+const primeiroNome = () => String(me.nome || '').trim().split(/\s+/)[0];
+const msgLead = l => `Olá, tudo bem? Meu nome é ${primeiroNome()}, sou do Pão de Queijo Lazinho, pão de queijo congelado com receita tradicional de Minas. Gostaria de apresentar nosso produto para ${l.nome}. Posso te mandar o catálogo e combinar uma amostra?`;
+const proxTag = l => { if (!l.proximoContato || l.etapa === 'cliente' || l.etapa === 'perdido') return ''; const hj = ymd(); const c = l.proximoContato < hj ? 'no' : l.proximoContato === hj ? 'y' : ''; return `<span class="tag ${c}">${l.proximoContato < hj ? 'Atrasado · ' : l.proximoContato === hj ? 'Hoje · ' : 'Retorno '}${dataBR(l.proximoContato)}</span>`; };
+
+function renderFunil() {
+  const hj = ymd(), ativos = leads.filter(l => l.etapa !== 'cliente' && l.etapa !== 'perdido');
+  const atras = ativos.filter(l => l.proximoContato && l.proximoContato <= hj).length;
+  const cnt = k => leads.filter(l => l.etapa === k).length;
+  const t = semAcento(fFun.q);
+  const cidades = [...new Set(leads.map(l => l.cidade).filter(Boolean))].sort();
+  const ord = (a, b) => (a.proximoContato || '9999').localeCompare(b.proximoContato || '9999') || (soDig(b.telefone) ? 1 : 0) - (soDig(a.telefone) ? 1 : 0) || String(a.nome).localeCompare(String(b.nome), 'pt-BR');
+  const l = leads.filter(x => (fFun.e === 'todos' || x.etapa === fFun.e) && (!fFun.t || (x.tipo || 'padaria') === fFun.t) && (!fFun.c || x.cidade === fFun.c)
+    && (!t || semAcento([x.nome, x.bairro, x.cidade, x.telefone, x.endereco, x.contato].join(' ')).includes(t))).sort(ord);
+  const opt = (arr, cur, todos) => `<option value="">${todos}</option>` + arr.map(([v, n]) => `<option value="${h(v)}" ${cur === v ? 'selected' : ''}>${h(n)}</option>`).join('');
+  $('#t-funil').innerHTML = `
+    <div class="hero"><img src="img/logo.png" alt=""><div style="flex:1"><h2>Funil de vendas</h2><span>Prospecção · ${leads.length} contatos</span></div><button class="btn wheat sm" id="f-novo">+ Novo</button></div>
+    <div class="kpis"><div class="kpi"><b>${cnt('a_contatar')}</b><span>a contatar</span></div><div class="kpi"><b>${cnt('contato') + cnt('amostra') + cnt('negociando')}</b><span>em andamento</span></div><div class="kpi"><b style="${atras ? 'color:var(--crit)' : ''}">${atras}</b><span>retornos hoje/atrasados</span></div></div>
+    <input type="search" id="f-q" placeholder="Buscar nome, bairro, telefone…" value="${h(fFun.q)}" autocomplete="off">
+    <div class="chips">${[['todos', 'Todos (' + leads.length + ')'], ...ETAPAS.map(([k, n]) => [k, n + ' (' + cnt(k) + ')'])].map(([k, n]) => `<button class="chip" data-e="${k}" aria-pressed="${fFun.e === k}">${h(n)}</button>`).join('')}</div>
+    <div class="row2"><label class="field"><span>Tipo</span><select id="f-t">${opt(TIPOS, fFun.t, 'Todos')}</select></label><label class="field"><span>Cidade</span><select id="f-c">${opt(cidades.map(c => [c, c]), fFun.c, 'Todas')}</select></label></div>
+    <div class="list">${l.slice(0, fFun.mais).map(x => `<button class="item" data-lead="${h(x.id)}"><div class="t"><b>${h(x.nome)}</b><span style="display:block">${h([x.bairro, x.cidade].filter(Boolean).join(' · '))}</span><span style="display:block">${x.telefone ? h(x.telefone) : 'sem telefone'}</span><span style="display:block;margin-top:4px"><span class="tag">${h(nomeTipo(x.tipo))}</span> <span class="tag ${x.etapa === 'cliente' ? 'ok' : x.etapa === 'perdido' ? 'no' : 'y'}">${h(nomeEtapa(x.etapa))}</span></span></div><div class="r">${proxTag(x)}</div></button>`).join('')
+      || '<div class="empty"><img class="empty-logo" src="img/logo.png" alt=""><b>Nenhum contato</b>Os contatos aparecem depois da carga feita pela Lazinho. Use “+ Novo” para cadastrar.</div>'}</div>
+    ${l.length > fFun.mais ? `<button class="btn big" id="f-mais">Mostrar mais (${l.length - fFun.mais})</button>` : ''}`;
+  $('#f-novo').onclick = () => abreLead('');
+  $('#f-q').oninput = e => { fFun.q = e.target.value; fFun.mais = 60; const p = e.target.selectionStart; renderFunil(); const i = $('#f-q'); i.focus(); i.setSelectionRange(p, p); };
+  $('#f-t').onchange = e => { fFun.t = e.target.value; fFun.mais = 60; renderFunil(); };
+  $('#f-c').onchange = e => { fFun.c = e.target.value; fFun.mais = 60; renderFunil(); };
+  $$('#t-funil [data-e]').forEach(b => b.onclick = () => { fFun.e = b.dataset.e; fFun.mais = 60; renderFunil(); });
+  $$('#t-funil [data-lead]').forEach(b => b.onclick = () => abreLead(b.dataset.lead));
+  const fm = $('#f-mais'); if (fm) fm.onclick = () => { fFun.mais += 60; renderFunil(); };
+}
+function gravaLead(l, campos, extraHist) {
+  const reg = { ...l, ...campos, pendente: true, atualizadoMs: Date.now(), atualizadoPor: me.nome };
+  delete reg.id;
+  reg.historico = (l.historico || []).concat(extraHist || []);
+  if (!leads.some(x => x.id === l.id)) { reg.criadoEm = new Date().toISOString(); reg.origem = 'Cadastrado no app por ' + me.nome; }
+  setDoc(doc(db, 'leads', l.id), reg).catch(e => toast(erroMsg(e)));
+  return reg;
+}
+const histItem = (tipo, texto) => ({ data: new Date().toISOString(), tipo, texto: texto + ' — ' + primeiroNome() });
+function abreLead(id) {
+  const novo = !id;
+  const l = novo ? { id: 'lead-app-' + Date.now().toString(36), nome: '', tipo: 'padaria', cidade: '', bairro: '', endereco: '', telefone: '', instagram: '', contato: '', porte: 'pequena', etapa: 'a_contatar', proximoContato: '', obs: '', historico: [] } : leads.find(x => x.id === id);
+  if (!l) return;
+  const wa = waNum(l), ig = igUser(l.instagram), maps = l.lat ? `https://www.google.com/maps/search/?api=1&query=${l.lat},${l.lng}` : (l.endereco ? 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(l.nome + ' ' + l.endereco + ' ' + (l.cidade || '')) : '');
+  const campo = (i, rot, val, tipo = 'text', ph = '') => `<label class="field"><span>${rot}</span><input type="${tipo}" id="${i}" value="${h(val || '')}" placeholder="${ph}" autocomplete="off"></label>`;
+  sheet(`<div class="spread"><button class="btn ghost" id="lf-x">← Voltar</button><h3>${novo ? 'Novo contato' : h(l.nome)}</h3><span></span></div>
+    ${novo ? '' : `<div><span class="tag">${h(nomeTipo(l.tipo))}</span> <span class="tag y">${h(nomeEtapa(l.etapa))}</span> ${proxTag(l)}</div>
+    <div class="row2">${wa ? `<a class="btn primary" target="_blank" rel="noopener" href="https://wa.me/${wa}?text=${encodeURIComponent(msgLead(l))}">WhatsApp</a>` : ''}${l.telefone ? `<a class="btn" href="tel:${h(soDig(l.telefone))}">Ligar</a>` : ''}${ig ? `<a class="btn" target="_blank" rel="noopener" href="https://ig.me/m/${h(ig)}">Instagram</a>` : ''}${maps ? `<a class="btn" target="_blank" rel="noopener" href="${h(maps)}">Mapa</a>` : ''}</div>`}
+    <div class="card"><div class="label" style="margin-bottom:6px">Andamento</div>
+      <label class="field"><span>Etapa</span><select id="lf-etapa">${ETAPAS.map(([k, n]) => `<option value="${k}" ${l.etapa === k ? 'selected' : ''}>${h(n)}</option>`).join('')}</select></label>
+      ${campo('lf-prox', 'Próximo contato', l.proximoContato, 'date')}
+      <label class="field"><span>Observações</span><textarea id="lf-obs">${h(l.obs || '')}</textarea></label></div>
+    <div class="card"><div class="label" style="margin-bottom:6px">Dados do estabelecimento</div>
+      ${campo('lf-nome', 'Nome *', l.nome)}
+      <label class="field"><span>Tipo de estabelecimento</span><select id="lf-tipo">${TIPOS.map(([k, n]) => `<option value="${k}" ${(l.tipo || 'padaria') === k ? 'selected' : ''}>${h(n)}</option>`).join('')}</select></label>
+      ${campo('lf-tel', 'Telefone / WhatsApp', l.telefone, 'tel')}${campo('lf-ig', 'Instagram', l.instagram, 'text', '@usuario')}${campo('lf-contato', 'Falar com', l.contato, 'text', 'Dono, gerente…')}
+      ${campo('lf-end', 'Endereço', l.endereco)}${campo('lf-bai', 'Bairro', l.bairro)}${campo('lf-cid', 'Cidade', l.cidade)}</div>
+    <button class="btn primary big" id="lf-salvar">${novo ? 'Cadastrar contato' : 'Salvar alterações'}</button>
+    ${novo ? '' : `<div class="card"><div class="label" style="margin-bottom:6px">Registrar contato</div>
+      <label class="field"><span>Como foi</span><select id="lh-tipo"><option>WhatsApp</option><option>Instagram</option><option>Ligação</option><option>Visita</option><option>Amostra entregue</option><option>Outro</option></select></label>
+      ${campo('lh-prox', 'Retornar em', '', 'date')}
+      <label class="field"><span>O que foi conversado</span><textarea id="lh-txt" placeholder="Ex.: falei com o dono, pediu amostra para sexta"></textarea></label>
+      <button class="btn wheat big" id="lh-ok">Registrar contato</button></div>
+    ${l.etapa !== 'cliente' ? '<button class="btn primary big" id="lf-virou">✅ Virou cliente — cadastrar e fazer pedido</button>' : (l.clienteDoc ? '<button class="btn primary big" id="lf-pedido">Fazer pedido para este cliente</button>' : '')}
+    <div class="card"><div class="label" style="margin-bottom:6px">Histórico</div>${(l.historico || []).slice().reverse().map(x => `<div class="line" style="display:block"><span class="muted small">${h(dataHoraBR(Date.parse(x.data)))} · ${h(x.tipo)}</span><br>${h(x.texto)}</div>`).join('') || '<div class="muted small">Nenhum contato registrado ainda.</div>'}</div>`}`);
+  const v = i => $('#' + i).value.trim();
+  $('#lf-x').onclick = fechaSheet;
+  const dados = () => ({ nome: v('lf-nome'), tipo: v('lf-tipo'), telefone: v('lf-tel'), instagram: igUser(v('lf-ig')), contato: v('lf-contato'), endereco: v('lf-end'), bairro: v('lf-bai'), cidade: v('lf-cid'), etapa: v('lf-etapa'), proximoContato: v('lf-prox'), obs: $('#lf-obs').value.trim() });
+  $('#lf-salvar').onclick = () => {
+    const d = dados(); if (!d.nome) return toast('Escreva o nome do estabelecimento.');
+    const hist = d.etapa !== l.etapa && !novo ? [histItem('etapa', 'Etapa: ' + nomeEtapa(l.etapa) + ' → ' + nomeEtapa(d.etapa))] : [];
+    gravaLead(l, d, hist); toast(novo ? 'Contato cadastrado.' : 'Alterações salvas.'); fechaSheet();
+  };
+  const ok = $('#lh-ok'); if (ok) ok.onclick = () => {
+    const txt = v('lh-txt'); if (!txt) return toast('Escreva o que foi conversado.');
+    const d = dados(); const prox = v('lh-prox'); if (prox) d.proximoContato = prox;
+    const hist = [histItem(v('lh-tipo'), txt)]; if (d.etapa === 'a_contatar') { d.etapa = 'contato'; hist.push(histItem('etapa', 'Etapa: A contatar → Contato feito')); }
+    gravaLead(l, d, hist); toast('Contato registrado.'); abreLead(l.id);
+  };
+  const vc = $('#lf-virou'); if (vc) vc.onclick = () => {
+    const d = dados(); if (!d.nome) return toast('Escreva o nome do estabelecimento.');
+    const m = /^(.*?),\s*(\d[\w\/-]*)\s*$/.exec(d.endereco || '');
+    abreNovoCliente({ nome: d.nome.toUpperCase(), fone: d.telefone, log: m ? m[1] : d.endereco, num: m ? m[2] : '', bai: d.bairro, mun: d.cidade, uf: 'RJ' }, cd => {
+      gravaLead(l, { ...d, etapa: 'cliente', clienteDoc: cd }, [histItem('etapa', 'Virou cliente (CNPJ/CPF ' + docFmt(cd) + ')')]);
+      np = novoVazio(cd); vaiTab('novo');
+    });
+  };
+  const fp = $('#lf-pedido'); if (fp) fp.onclick = () => { np = novoVazio(l.clienteDoc); fechaSheet(); vaiTab('novo'); };
 }
 
 // ---------- VISITAS ----------

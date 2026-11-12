@@ -180,3 +180,5 @@ tr.click{cursor:pointer} tr.click:hover td{background:var(--sunk)}
 .top .who{white-space:nowrap}
 .top .btn.sm{padding:6px 8px}
 @media (max-width:480px){.brand-logo{height:40px}.brand small{display:none}.top .who small,.top .who{font-size:11px}.top .who b{font-size:14px}.top-in{padding:8px 10px}}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.row2:empty{display:none}
