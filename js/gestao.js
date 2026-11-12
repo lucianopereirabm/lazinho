@@ -195,7 +195,7 @@ async function bloqueia(id) {
 }
 
 // ---------- CARGA DO PORTAL ----------
-let sync = null;
+let sync = null, resHtml = '';
 async function aplicaAndamentos(lista) {
   const b = writeBatch(db); let n = 0;
   (lista || []).forEach(a => {
@@ -209,10 +209,38 @@ async function aplicaAndamentos(lista) {
   if (n) await b.commit();
   return n;
 }
+const okUsr = new Map();
+async function aplicaUsuarios(lista) {
+  const L = [];
+  for (const u of (lista || [])) {
+    const usr = usuarioDeNome(u.usuario || u.nome); if (!usr) continue;
+    const perm = { permPedido: u.permPedido !== false, permPreco: u.permPreco !== false, permVisita: u.permVisita !== false, permCliente: u.permCliente === true };
+    const ex = usuarios.find(x => x.usuario === usr);
+    try {
+      if (u.ativo === false) { if (ex) { await deleteDoc(doc(db, 'usuarios', ex.uid)); L.push(usr + ': bloqueado'); } continue; }
+      if (!u.senha || String(u.senha).length < 4) { L.push(usr + ': senha inválida (mínimo 4 caracteres)'); continue; }
+      let v = vendedores.find(x => usuarioDeNome(x.nome) === usr || x.id === u.vendedorId);
+      if (!v) { const id = semAcento(u.nome || usr).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''); v = { id, nome: u.nome || usr }; await setDoc(doc(db, 'vendedores', id), { nome: v.nome, comissaoPct: 5, ativo: true }, { merge: true }); vendedores.push(v); }
+      if (!ex) {
+        const uid = await criarAcessoVendedor(usr, String(u.senha), String(u.senha));
+        await setDoc(doc(db, 'usuarios', uid), { vendedorId: v.id, nome: v.nome, usuario: usr, senhaEm: u.senhaEm || 0, ...perm }, { merge: true });
+        await setDoc(doc(db, 'vendedores', v.id), { uid, usuario: usr, ativo: true }, { merge: true });
+        L.push(usr + ': acesso criado'); okUsr.set(usr, { usuario: usr, nome: v.nome, vendedorId: v.id, ...perm });
+      } else {
+        const upd = { ...perm };
+        if ((u.senhaEm || 0) !== (ex.senhaEm || 0)) {
+          await criarAcessoVendedor(usr, String(u.senha), String(u.senhaAnt || u.senha)); upd.senhaEm = u.senhaEm || 0;
+        }
+        await updateDoc(doc(db, 'usuarios', ex.uid), upd); L.push(usr + ': atualizado'); okUsr.set(usr, { usuario: usr, nome: ex.nome, vendedorId: ex.vendedorId, ...perm });
+      }
+    } catch (e) { L.push(usr + ': ' + ((e.code || '').includes('invalid-credential') ? 'senha anterior não confere; use “Trocar senha” na aba Vendedores' : erroMsg(e))); }
+  }
+  return L;
+}
 async function baixaPedidos(novos, cnovos) {
   const out = novos.map(p => ({ appId: p.id, data: p.data, clienteDoc: p.clienteDoc, clienteNome: p.clienteNome, itens: p.itens, total: p.total, condicaoId: p.condicaoId, condicaoNome: p.condicaoNome, prazo: p.prazo, obs: p.obs, dataEntrega: p.dataEntrega, vendedorId: p.vendedorId, vendedorNome: p.vendedorNome, criadoMs: p.criadoMs }));
   const cl = cnovos.map(c => { const { uid, status, ...resto } = c; return resto; });
-  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify({ gerado: new Date().toISOString(), usuarios: usuarios.map(u => ({ usuario: u.usuario || '', nome: u.nome || '', vendedorId: u.vendedorId || '', permPedido: u.permPedido !== false, permPreco: u.permPreco !== false, permVisita: u.permVisita !== false, permCliente: u.permCliente === true })), clientes: cl, pedidos: out }, null, 1)], { type: 'application/json' })); a.download = 'pedidos-app-' + ymd() + '.json'; a.click();
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify({ gerado: new Date().toISOString(), usuarios: [...new Map([...usuarios.map(u => [u.usuario || '', { usuario: u.usuario || '', nome: u.nome || '', vendedorId: u.vendedorId || '', permPedido: u.permPedido !== false, permPreco: u.permPreco !== false, permVisita: u.permVisita !== false, permCliente: u.permCliente === true }]), ...okUsr]).values()], clientes: cl, pedidos: out }, null, 1)], { type: 'application/json' })); a.download = 'pedidos-app-' + ymd() + '.json'; a.click();
   if (!novos.length && !cnovos.length) return;
   const b = writeBatch(db); const t = Date.now();
   novos.forEach(p => b.update(doc(db, 'pedidos', p.id), { status: 'recebido', recebidoEm: t, statusEm: t }));
@@ -230,24 +258,25 @@ function abaCarga() {
       <input type="file" id="cg-arq" accept="application/json,.json">
       <div id="cg-prev"></div>
       <button class="btn primary" id="cg-env">Atualizar tudo</button>
-      <div id="cg-res"></div>
+      <div id="cg-res">${resHtml}</div>
     </div>`;
   $('#cg-arq').onchange = async e => {
     const f = e.target.files[0]; sync = null; if (!f) { $('#cg-prev').innerHTML = ''; return; }
-    try { const j = JSON.parse(await f.text()); sync = j.carga ? j : { carga: j.clientes && j.produtos ? j : null, andamentos: j.andamentos || [] }; } catch (err) { $('#cg-prev').innerHTML = '<div class="note crit">Arquivo inválido.</div>'; return; }
+    try { const j = JSON.parse(await f.text()); sync = j.carga ? j : { carga: j.clientes && j.produtos ? j : null, andamentos: j.andamentos || [], usuarios: j.usuarios || [] }; } catch (err) { $('#cg-prev').innerHTML = '<div class="note crit">Arquivo inválido.</div>'; return; }
     const c = sync.carga || {};
-    $('#cg-prev').innerHTML = `<div class="note ok">Arquivo de ${h(c.gerado || sync.gerado || '—')}: ${(c.clientes || []).length} clientes, ${(c.produtos || []).length} produtos, ${(c.condicoes || []).length} condições, ${(c.vendedores || []).length} vendedores, ${(sync.andamentos || []).length} andamento(s).</div>`;
+    $('#cg-prev').innerHTML = `<div class="note ok">Arquivo de ${h(c.gerado || sync.gerado || '—')}: ${(c.clientes || []).length} clientes, ${(c.produtos || []).length} produtos, ${(c.condicoes || []).length} condições, ${(c.vendedores || []).length} vendedores, ${(sync.andamentos || []).length} andamento(s), ${(sync.usuarios || []).length} usuário(s).</div>`;
     $('#cg-env').disabled = false;
   };
   $('#cg-env').onclick = async () => {
     const btn = $('#cg-env'), r = $('#cg-res'); btn.disabled = true; btn.textContent = 'Atualizando…'; const L = [];
     try {
       if (sync && sync.carga) { const n = await enviaCarga(sync.carga, btn); L.push(n + ' registros enviados ao app (clientes, produtos, vendas).'); }
+      if (sync && (sync.usuarios || []).length) { const r = await aplicaUsuarios(sync.usuarios); r.forEach(x => L.push(x)); }
       if (sync && (sync.andamentos || []).length) { const n = await aplicaAndamentos(sync.andamentos); L.push(n + ' pedido(s) com andamento novo para os vendedores.'); }
       { await baixaPedidos(novos, cnovos); L.push(novos.length + ' pedido(s) e ' + cnovos.length + ' cliente(s) novo(s) baixados para o Portal (pedidos agora travados no app).'); }
       if (!L.length) L.push('Nada novo para atualizar.');
-      r.innerHTML = '<div class="note ok">' + L.map(h).join('<br>') + '</div>'; toast('Atualizado.'); sync = null;
-    } catch (e) { r.innerHTML = '<div class="note crit">' + h(erroMsg(e)) + '</div>'; toast(erroMsg(e), 5000); }
+      resHtml = '<div class="note ok">' + L.map(h).join('<br>') + '</div>'; r.innerHTML = resHtml; toast('Atualizado.'); sync = null;
+    } catch (e) { resHtml = '<div class="note crit">' + h(erroMsg(e)) + '</div>'; r.innerHTML = resHtml; toast(erroMsg(e), 5000); }
     btn.textContent = 'Atualizar tudo'; btn.disabled = false;
   };
 }

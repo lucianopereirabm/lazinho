@@ -1,5 +1,5 @@
 // Service worker: guarda o app para abrir sem internet. Sempre tenta a rede primeiro (4 s).
-const CACHE = 'lazinho-v10';
+const CACHE = 'lazinho-v11';
 const ARQS = ['./', './index.html', './gestao.html', './css/app.css', './js/fb.js', './js/vendedor.js', './js/gestao.js', './manifest.webmanifest', './img/icon-192.png', './img/icon-512.png', './img/apple-touch-icon.png', './img/logo.png'];
 const LIBS = ['app', 'auth', 'firestore'].map(n => `https://www.gstatic.com/firebasejs/10.12.2/firebase-${n}.js`);
 self.addEventListener('install', e => {
