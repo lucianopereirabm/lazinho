@@ -153,7 +153,7 @@ function abrePedido(id) {
   const passos = [
     { on: true, t: 'Enviado em ' + dataHoraBR(p.criadoMs) },
     { on: ['recebido', 'faturado', 'entregue'].includes(p.status), t: p.numeroPortal ? 'Recebido pela Lazinho (pedido nº ' + p.numeroPortal + ')' : 'Recebido pela Lazinho' },
-    { on: ['faturado', 'entregue'].includes(p.status), t: p.nfNumero ? 'Faturado — NF ' + p.nfNumero : 'Faturado' },
+    { on: ['faturado', 'entregue'].includes(p.status), t: p.nfNumero ? 'Faturado — NF ' + p.nfNumero + (p.nfEmissao ? ' em ' + dataBR(p.nfEmissao) : '') : 'Faturado' },
     { on: p.status === 'entregue', t: p.entregueEm ? 'Entregue em ' + dataBR(p.entregueEm) : 'Entregue' }
   ];
   const canc = p.status === 'cancelado';
@@ -163,6 +163,8 @@ function abrePedido(id) {
     <div class="card">${(p.itens || []).map(i => `<div class="line"><span>${i.qtd} ${h(i.un)} · ${h(i.nome)}<br><span class="muted small">${brl(i.preco)} cada</span></span><b>${brl(i.subtotal)}</b></div>`).join('')}
       <div class="line"><b>Total</b><b>${brl(p.total)}</b></div>
       <div class="line"><span class="muted">Pagamento</span><span>${h(p.condicaoNome || '—')}</span></div>
+      ${['faturado', 'entregue'].includes(p.status) && p.nfNumero ? `<div class="line"><span class="muted">Nota fiscal</span><span>NF ${h(p.nfNumero)}${p.nfEmissao ? ' · emitida ' + dataBR(p.nfEmissao) : ''}</span></div>` : ''}
+      ${['faturado', 'entregue'].includes(p.status) && (p.vencimentos || []).length ? `<div class="line"><span class="muted">Vencimento${p.vencimentos.length > 1 ? 's' : ''}</span><span>${p.vencimentos.map(v => dataBR(v)).join(' · ')}</span></div>` : ''}
       ${p.dataEntrega ? `<div class="line"><span class="muted">Entrega desejada</span><span>${dataBR(p.dataEntrega)}</span></div>` : ''}
       ${p.obs ? `<div class="line"><span class="muted">Observação</span><span>${h(p.obs)}</span></div>` : ''}</div>
     ${canc ? `<div class="note crit">Pedido cancelado${p.motivoCancel ? ': ' + h(p.motivoCancel) : ''}.</div>` : `<div class="card"><div class="label" style="margin-bottom:8px">Andamento</div><ul class="steps">${passos.map(s => `<li class="${s.on ? 'on' : ''}">${h(s.t)}</li>`).join('')}</ul></div>`}

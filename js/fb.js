@@ -18,7 +18,7 @@ export const firebaseConfig = {
   messagingSenderId: "704082318801",
   appId: "1:704082318801:web:d33a1ce7c1a579888b7cf0"
 };
-export const VERSAO = 'v12';
+export const VERSAO = 'v13';
 
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
@@ -162,10 +162,30 @@ export function avisoRede() {
 }
 
 // Botão "Atualizar": envia o que está esperando sinal e relê tudo do servidor.
+// confere se existe versão nova do app no servidor (compara o número da versão)
+export async function versaoNova() {
+  try {
+    const r = await fetch('js/fb.js?x=' + Date.now(), { cache: 'no-store' }); if (!r.ok) return null;
+    const m = /VERSAO = '([^']+)'/.exec(await r.text());
+    return m && m[1] !== VERSAO ? m[1] : null;
+  } catch (e) { return null; }
+}
+async function recarregaApp() {
+  try { const reg = navigator.serviceWorker && await navigator.serviceWorker.getRegistration(); if (reg) await reg.update(); } catch (e) {}
+  try { const ks = await caches.keys(); await Promise.all(ks.map(k => caches.delete(k))); } catch (e) {}
+  location.reload();
+}
+let avisouVersao = false;
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState !== 'visible' || avisouVersao || !navigator.onLine) return;
+  const v = await versaoNova(); if (v) { avisouVersao = true; toast('Nova versão ' + v + ' disponível. Toque em ↻ Atualizar.'); }
+});
 export async function atualizaAgora(btn, recarrega) {
   if (btn) { btn.disabled = true; btn.classList.add('girando'); }
   try {
     if (!navigator.onLine) { toast('Sem internet agora. Tente de novo quando o sinal voltar.'); return; }
+    const nv = await versaoNova();
+    if (nv) { toast('Nova versão ' + nv + '! Atualizando o app…'); setTimeout(recarregaApp, 900); return; }
     try { await enableNetwork(db); } catch (e) {}
     await Promise.race([waitForPendingWrites(db), new Promise((_, r) => setTimeout(() => r(new Error('demorou')), 8000))]);
     if (recarrega) recarrega();
