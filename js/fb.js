@@ -18,7 +18,7 @@ export const firebaseConfig = {
   messagingSenderId: "704082318801",
   appId: "1:704082318801:web:d33a1ce7c1a579888b7cf0"
 };
-export const VERSAO = 'v2';
+export const VERSAO = 'v3';
 
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
@@ -41,7 +41,7 @@ export {
 // ---------- login dos vendedores: usuário (primeiro nome) + senha ----------
 export const DOMINIO_VENDEDOR = 'vendedor.lazinho.app';
 export const emailVendedor = usuario => `${usuario}@${DOMINIO_VENDEDOR}`;
-export const senhaVendedor = senha => senha;   // a senha é a que a Gestão definiu (mínimo 6 caracteres)
+export const senhaVendedor = senha => `lz-${senha}-app`;   // prefixo interno: o Firebase exige 6+ caracteres, então senhas curtas (ex.: 2026) funcionam
 
 // Cria (ou troca o código de) um login de vendedor sem derrubar a sessão do administrador
 export async function criarAcessoVendedor(usuario, codigo, codigoAntigo) {

@@ -109,7 +109,7 @@ function abaVendedores() {
   const usr = id => usuarios.find(u => u.vendedorId === id);
   main().innerHTML = `
     <div class="spread"><h2>Vendedores</h2><button class="btn primary" id="v-novo">+ Novo vendedor</button></div>
-    <div class="note">Cada vendedor entra no app com o <b>usuário</b> (primeiro nome, sem acento) e uma <b>senha</b> (mínimo 6 caracteres) que você define aqui. Os vendedores também podem vir da carga do Portal.</div>
+    <div class="note">Cada vendedor entra no app com o <b>usuário</b> (primeiro nome, sem acento) e uma <b>senha</b> (mínimo 4 caracteres) que você define aqui. Os vendedores também podem vir da carga do Portal.</div>
     <div class="table-wrap"><table><thead><tr><th>Vendedor</th><th>Comissão</th><th>Acesso ao app</th><th></th></tr></thead><tbody>
     ${vendedores.map(v => { const u = usr(v.id); return `<tr><td><b>${h(v.nome)}</b><br><span class="muted small">id: ${h(v.id)}</span></td><td>${v.comissaoPct != null ? v.comissaoPct + '%' : '—'}</td>
       <td>${u ? `<span class="tag ok">ativo</span> usuário <b>${h(u.usuario || '')}</b>` : '<span class="tag">sem acesso</span>'}</td>
@@ -136,13 +136,13 @@ function acessoVendedor(id) {
   abreModal(`<h3>${u ? 'Trocar senha de ' : 'Criar acesso para '}${h(v.nome)}</h3>
     <label class="field"><span>Usuário (primeiro nome, sem acento)</span><input type="text" id="ac-usr" value="${h(u ? u.usuario : usuarioDeNome(v.nome))}" ${u ? 'readonly' : ''}></label>
     ${u ? '<label class="field"><span>Senha atual</span><input type="text" id="ac-old" autocomplete="off"></label>' : ''}
-    <label class="field"><span>${u ? 'Nova senha' : 'Senha'} (mínimo 6 caracteres)</span><input type="text" id="ac-cod" autocomplete="off"></label>
+    <label class="field"><span>${u ? 'Nova senha' : 'Senha'} (mínimo 4 caracteres)</span><input type="text" id="ac-cod" autocomplete="off"></label>
     <div class="note">Anote a senha e passe ao vendedor. Ela não fica visível depois.</div>
     <div class="row end"><button class="btn" id="ac-x">Voltar</button><button class="btn primary" id="ac-ok">Salvar</button></div>`);
   $('#ac-x').onclick = fechaModal;
   $('#ac-ok').onclick = async () => {
     const usr = usuarioDeNome($('#ac-usr').value), cod = $('#ac-cod').value.trim(), old = u ? $('#ac-old').value.trim() : '';
-    if (!usr) return toast('Informe o usuário.'); if (cod.length < 6) return toast('A senha precisa ter pelo menos 6 caracteres.'); if (u && !old) return toast('Informe a senha atual.');
+    if (!usr) return toast('Informe o usuário.'); if (cod.length < 4) return toast('A senha precisa ter pelo menos 4 caracteres.'); if (u && !old) return toast('Informe a senha atual.');
     $('#ac-ok').disabled = true;
     try {
       const uid = await criarAcessoVendedor(usr, cod, old || undefined);
