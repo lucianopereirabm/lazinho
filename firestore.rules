@@ -8,6 +8,8 @@ service cloud.firestore {
     // Vendedor ligado a este login (cadastrado pela Gestão em "usuarios")
     function isVendedor() { return logado() && exists(/databases/$(database)/documents/usuarios/$(request.auth.uid)); }
     function meuVendedor() { return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.vendedorId; }
+    // Permissões do vendedor (definidas pela Gestão no cadastro do usuário)
+    function perm(nome, padrao) { return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.get(nome, padrao) == true; }
 
     match /usuarios/{uid} { allow read: if isAdmin() || (logado() && request.auth.uid == uid); allow write: if isAdmin(); }
 
@@ -22,24 +24,36 @@ service cloud.firestore {
     // Pedidos: o vendedor cria e enxerga só os próprios; só cancela enquanto "novo"
     match /pedidos/{id} {
       allow read: if isAdmin() || (isVendedor() && resource.data.vendedorId == meuVendedor());
-      allow create: if isAdmin() || (isVendedor()
+      allow create: if isAdmin() || (isVendedor() && perm('permPedido', true)
         && request.resource.data.vendedorId == meuVendedor()
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.status == 'novo');
-      allow update: if isAdmin() || (isVendedor()
+      // Enquanto "novo" o vendedor pode editar ou cancelar; depois que a Lazinho recebe (importa), só a Gestão altera
+      allow update: if isAdmin() || (isVendedor() && perm('permPedido', true)
         && resource.data.vendedorId == meuVendedor()
         && resource.data.status == 'novo'
-        && request.resource.data.status == 'cancelado'
-        && request.resource.data.vendedorId == resource.data.vendedorId);
+        && request.resource.data.status in ['novo', 'cancelado']
+        && request.resource.data.vendedorId == resource.data.vendedorId
+        && request.resource.data.uid == resource.data.uid);
       allow delete: if isAdmin();
     }
 
     // Visitas: o vendedor cria e enxerga só as próprias; só a Gestão altera ou apaga
     match /visitas/{id} {
       allow read: if isAdmin() || (isVendedor() && resource.data.vendedorId == meuVendedor());
-      allow create: if isAdmin() || (isVendedor()
+      allow create: if isAdmin() || (isVendedor() && perm('permVisita', true)
         && request.resource.data.vendedorId == meuVendedor()
         && request.resource.data.uid == request.auth.uid);
+      allow update, delete: if isAdmin();
+    }
+
+    // Clientes cadastrados pelo vendedor no app (só quem tem permissão); a Gestão leva ao Portal
+    match /clientesNovos/{id} {
+      allow read: if isAdmin() || (isVendedor() && resource.data.vendedorId == meuVendedor());
+      allow create: if isAdmin() || (isVendedor() && perm('permCliente', false)
+        && request.resource.data.vendedorId == meuVendedor()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.status == 'novo');
       allow update, delete: if isAdmin();
     }
 

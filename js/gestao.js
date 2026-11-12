@@ -6,7 +6,7 @@ import {
 } from './fb.js';
 
 const ADMIN_UID = 'z0MjWvFOXqUqWPS2I0vD6mBxOOR2';
-let pedidos = [], visitas = [], vendedores = [], usuarios = [], nClientes = 0, nProdutos = 0;
+let pedidos = [], visitas = [], vendedores = [], usuarios = [], clientesNovos = [], nClientes = 0, nProdutos = 0;
 let unsubs = [], aba = 'pedidos';
 let fP = { mes: ymd().slice(0, 7), vend: '', st: '' }, fV = { mes: ymd().slice(0, 7), vend: '' };
 
@@ -30,6 +30,7 @@ function assina() {
   w('visitas', collection(db, 'visitas'), s => visitas = s.docs.map(d => ({ ...d.data(), id: d.id })).sort((a, b) => (b.criadoMs || 0) - (a.criadoMs || 0)));
   w('vendedores', collection(db, 'vendedores'), s => vendedores = s.docs.map(d => ({ ...d.data(), id: d.id })).sort(porNome));
   w('usuarios', collection(db, 'usuarios'), s => usuarios = s.docs.map(d => ({ ...d.data(), uid: d.id })));
+  w('clientes novos', collection(db, 'clientesNovos'), s => clientesNovos = s.docs.map(d => ({ ...d.data(), doc: d.id })));
   w('clientes', collection(db, 'clientes'), s => nClientes = s.size);
   w('produtos', collection(db, 'produtos'), s => nProdutos = s.size);
 }
@@ -105,19 +106,41 @@ function abaVisitas() {
 }
 
 // ---------- VENDEDORES ----------
+const PERMS = [['permPedido', 'Digitar pedido', true], ['permPreco', 'Alterar preço no pedido', true], ['permVisita', 'Registrar visita', true], ['permCliente', 'Cadastrar cliente', false]];
+const permHtml = u => `<div class="stack" style="gap:6px">${PERMS.map(([k, t, d]) => `<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" data-perm="${k}" ${(u && u[k] !== undefined ? u[k] !== false && (d || u[k] === true) : d) ? 'checked' : ''}> ${t}</label>`).join('')}</div>`;
+const permLer = () => Object.fromEntries($$('[data-perm]').map(c => [c.dataset.perm, c.checked]));
+const permTags = u => PERMS.map(([k, t, d]) => { const on = u[k] === undefined ? d : (d ? u[k] !== false : u[k] === true); return `<span class="tag ${on ? 'ok' : ''}" title="${t}">${on ? '✓' : '✗'} ${t.replace('Alterar preço no pedido', 'Preço').replace('Digitar pedido', 'Pedido').replace('Registrar visita', 'Visita').replace('Cadastrar cliente', 'Cliente')}</span>`; }).join(' ');
 function abaVendedores() {
   const usr = id => usuarios.find(u => u.vendedorId === id);
   main().innerHTML = `
-    <div class="spread"><h2>Vendedores</h2><button class="btn primary" id="v-novo">+ Novo vendedor</button></div>
+    <div class="spread"><h2>Vendedores</h2><div class="row"><button class="btn wheat" id="v-padrao">Cadastrar Fernanda, João e Marlene (senha 2026)</button><button class="btn primary" id="v-novo">+ Novo vendedor</button></div></div>
     <div class="note">Cada vendedor entra no app com o <b>usuário</b> (primeiro nome, sem acento) e uma <b>senha</b> (mínimo 4 caracteres) que você define aqui. Os vendedores também podem vir da carga do Portal.</div>
-    <div class="table-wrap"><table><thead><tr><th>Vendedor</th><th>Comissão</th><th>Acesso ao app</th><th></th></tr></thead><tbody>
+    <div class="table-wrap"><table><thead><tr><th>Vendedor</th><th>Comissão</th><th>Acesso ao app</th><th>O que pode fazer</th><th></th></tr></thead><tbody>
     ${vendedores.map(v => { const u = usr(v.id); return `<tr><td><b>${h(v.nome)}</b><br><span class="muted small">id: ${h(v.id)}</span></td><td>${v.comissaoPct != null ? v.comissaoPct + '%' : '—'}</td>
       <td>${u ? `<span class="tag ok">ativo</span> usuário <b>${h(u.usuario || '')}</b>` : '<span class="tag">sem acesso</span>'}</td>
-      <td class="r"><button class="btn sm" data-ac="${h(v.id)}">${u ? 'Trocar senha' : 'Criar acesso'}</button> ${u ? `<button class="btn sm danger" data-bl="${h(v.id)}">Bloquear</button>` : ''}</td></tr>`; }).join('') || '<tr><td colspan="4" class="muted" style="text-align:center;padding:22px">Nenhum vendedor ainda. Use “+ Novo vendedor” ou a carga do Portal.</td></tr>'}
+      <td>${u ? permTags(u) : '—'}</td>
+      <td class="r"><button class="btn sm" data-ac="${h(v.id)}">${u ? 'Trocar senha' : 'Criar acesso'}</button> ${u ? `<button class="btn sm" data-pm="${h(v.id)}">Permissões</button> <button class="btn sm danger" data-bl="${h(v.id)}">Bloquear</button>` : ''}</td></tr>`; }).join('') || '<tr><td colspan="5" class="muted" style="text-align:center;padding:22px">Nenhum vendedor ainda. Use “+ Novo vendedor” ou a carga do Portal.</td></tr>'}
     </tbody></table></div>`;
   $('#v-novo').onclick = novoVendedor;
+  $('#v-padrao').onclick = cadastraPadrao;
   $$('[data-ac]').forEach(b => b.onclick = () => acessoVendedor(b.dataset.ac));
   $$('[data-bl]').forEach(b => b.onclick = () => bloqueia(b.dataset.bl));
+  $$('[data-pm]').forEach(b => b.onclick = () => permissoes(b.dataset.pm));
+}
+async function cadastraPadrao() {
+  const btn = $('#v-padrao'); btn.disabled = true; btn.textContent = 'Cadastrando…'; const log = [];
+  for (const nome of ['Fernanda', 'João', 'Marlene']) {
+    const usr = usuarioDeNome(nome); let v = vendedores.find(x => usuarioDeNome(x.nome) === usr);
+    try {
+      if (!v) { const id = semAcento(nome).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''); v = { id, nome }; await setDoc(doc(db, 'vendedores', id), { nome, comissaoPct: 5, ativo: true }, { merge: true }); }
+      const uid = await criarAcessoVendedor(usr, '2026', '2026');
+      await setDoc(doc(db, 'usuarios', uid), { vendedorId: v.id, nome: v.nome, usuario: usr, permPedido: true, permPreco: true, permVisita: true, permCliente: false }, { merge: true });
+      await setDoc(doc(db, 'vendedores', v.id), { uid, usuario: usr, ativo: true }, { merge: true });
+      log.push(nome + ': pronto (usuário ' + usr + ')');
+    } catch (e) { log.push(nome + ': ' + ((e.code || '').includes('invalid-credential') ? 'o usuário já existe com outra senha. Use “Trocar senha” na tabela.' : erroMsg(e))); }
+  }
+  abreModal(`<h3>Acessos cadastrados</h3><div class="stack">${log.map(l => `<div>${h(l)}</div>`).join('')}</div><div class="note ok">Senha de todos: <b>2026</b>. Para liberar “Cadastrar cliente”, use o botão Permissões de cada um.</div><div class="row end"><button class="btn primary" id="pd-ok">OK</button></div>`);
+  $('#pd-ok').onclick = fechaModal; btn.disabled = false; btn.textContent = 'Cadastrar Fernanda, João e Marlene (senha 2026)';
 }
 function novoVendedor() {
   abreModal(`<h3>Novo vendedor</h3>
@@ -137,6 +160,7 @@ function acessoVendedor(id) {
     <label class="field"><span>Usuário (primeiro nome, sem acento)</span><input type="text" id="ac-usr" value="${h(u ? u.usuario : usuarioDeNome(v.nome))}" ${u ? 'readonly' : ''}></label>
     ${u ? '<label class="field"><span>Senha atual</span><input type="text" id="ac-old" autocomplete="off"></label>' : ''}
     <label class="field"><span>${u ? 'Nova senha' : 'Senha'} (mínimo 4 caracteres)</span><input type="text" id="ac-cod" autocomplete="off"></label>
+    <div class="label">O que pode fazer no app</div>${permHtml(u)}
     <div class="note">Anote a senha e passe ao vendedor. Ela não fica visível depois.</div>
     <div class="row end"><button class="btn" id="ac-x">Voltar</button><button class="btn primary" id="ac-ok">Salvar</button></div>`);
   $('#ac-x').onclick = fechaModal;
@@ -146,7 +170,7 @@ function acessoVendedor(id) {
     $('#ac-ok').disabled = true;
     try {
       const uid = await criarAcessoVendedor(usr, cod, old || undefined);
-      await setDoc(doc(db, 'usuarios', uid), { vendedorId: id, nome: v.nome, usuario: usr });
+      await setDoc(doc(db, 'usuarios', uid), { vendedorId: id, nome: v.nome, usuario: usr, ...permLer() });
       await setDoc(doc(db, 'vendedores', id), { uid, usuario: usr, ativo: true }, { merge: true });
       toast('Acesso salvo. Usuário: ' + usr + ' · senha: ' + cod); fechaModal();
     } catch (e) {
@@ -154,6 +178,12 @@ function acessoVendedor(id) {
       toast(e.code === 'auth/email-already-in-use' ? 'Esse usuário já existe. Use “Trocar senha” informando a senha atual.' : erroMsg(e), 5000);
     }
   };
+}
+function permissoes(id) {
+  const u = usuarios.find(x => x.vendedorId === id); if (!u) return;
+  abreModal(`<h3>O que ${h(u.nome || id)} pode fazer no app</h3>${permHtml(u)}<div class="note">Valem na hora, no próximo uso do app. Pedido já recebido pela Lazinho nunca pode ser alterado pelo vendedor.</div><div class="row end"><button class="btn" id="pm-x">Voltar</button><button class="btn primary" id="pm-ok">Salvar</button></div>`);
+  $('#pm-x').onclick = fechaModal;
+  $('#pm-ok').onclick = async () => { try { await updateDoc(doc(db, 'usuarios', u.uid), permLer()); toast('Permissões salvas.'); fechaModal(); } catch (e) { toast(erroMsg(e)); } };
 }
 async function bloqueia(id) {
   const u = usuarios.find(x => x.vendedorId === id); if (!u) return;
@@ -164,7 +194,7 @@ async function bloqueia(id) {
 // ---------- CARGA DO PORTAL ----------
 let carga = null;
 function abaCarga() {
-  const novos = pedidos.filter(p => p.status === 'novo');
+  const novos = pedidos.filter(p => p.status === 'novo'), cnovos = clientesNovos.filter(c => c.status === 'novo');
   main().innerHTML = `
     <h2>Carga do Portal</h2>
     <div class="note">No Portal Lazinho, use o botão <b>“Exportar carga para o app”</b> (clientes, produtos, condições, vendedores e resumo de vendas). Depois envie o arquivo aqui. Isso atualiza o que os vendedores veem no app.</div>
@@ -174,9 +204,12 @@ function abaCarga() {
       <div id="cg-prev"></div>
       <button class="btn primary" id="cg-env" disabled>Enviar para o app</button>
     </div>
-    <h3>Pedidos novos para levar ao Portal</h3>
-    <div class="card stack"><div class="small muted">${novos.length} pedido(s) novo(s). Se o Portal não estiver ligado direto ao app, baixe o arquivo e use “Importar pedidos do app” no Portal.</div>
-      <div class="row"><button class="btn" id="cg-exp" ${novos.length ? '' : 'disabled'}>Baixar pedidos novos (JSON)</button><button class="btn" id="cg-rec" ${novos.length ? '' : 'disabled'}>Marcar todos como recebidos</button></div></div>`;
+    <h3>Andamento dos pedidos (do Portal para o app)</h3>
+    <div class="card stack"><div class="small muted">No Portal, aba <b>App → Baixar andamentos (arquivo)</b>. Envie o arquivo aqui para os vendedores verem Recebido, Faturado e Entregue (com a data).</div>
+      <input type="file" id="cg-and" accept="application/json,.json"><div id="cg-andprev"></div></div>
+    <h3>Pedidos e clientes novos para levar ao Portal</h3>
+    <div class="card stack"><div class="small muted">${novos.length} pedido(s) novo(s) e ${cnovos.length} cliente(s) novo(s) cadastrado(s) pelos vendedores. Ao baixar, os pedidos passam a <b>Recebido</b> e os vendedores não conseguem mais alterá-los. No Portal: <b>Importar pedidos do app</b>.</div>
+      <div class="row"><button class="btn primary" id="cg-exp" ${novos.length || cnovos.length ? '' : 'disabled'}>Baixar e marcar como recebidos</button></div></div>`;
   $('#cg-arq').onchange = async e => {
     const f = e.target.files[0]; if (!f) return;
     try { carga = JSON.parse(await f.text()); } catch (err) { carga = null; $('#cg-prev').innerHTML = '<div class="note crit">Arquivo inválido.</div>'; return; }
@@ -184,14 +217,33 @@ function abaCarga() {
     $('#cg-env').disabled = false;
   };
   $('#cg-env').onclick = enviaCarga;
-  $('#cg-exp').onclick = () => {
-    const out = novos.map(p => ({ appId: p.id, data: p.data, clienteDoc: p.clienteDoc, clienteNome: p.clienteNome, itens: p.itens, total: p.total, condicaoId: p.condicaoId, condicaoNome: p.condicaoNome, prazo: p.prazo, obs: p.obs, dataEntrega: p.dataEntrega, vendedorId: p.vendedorId, vendedorNome: p.vendedorNome, criadoMs: p.criadoMs }));
-    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify({ gerado: new Date().toISOString(), pedidos: out }, null, 1)], { type: 'application/json' })); a.download = 'pedidos-app-' + ymd() + '.json'; a.click();
+  $('#cg-and').onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    try {
+      const j = JSON.parse(await f.text()), b = writeBatch(db); let n = 0;
+      (j.andamentos || []).forEach(a => {
+        const p = pedidos.find(x => x.id === a.appId); if (!p) return;
+        if ((p.status === a.status) && (p.nfNumero || '') === (a.nfNumero || '') && (p.entregueEm || '') === (a.entregueEm || '') && (p.numeroPortal || '') === String(a.numeroPortal || '')) return;
+        const upd = { status: a.status, nfNumero: a.nfNumero || '', entregueEm: a.entregueEm || '', numeroPortal: String(a.numeroPortal || ''), statusEm: Date.now() };
+        if (['recebido', 'faturado', 'entregue'].includes(a.status) && !p.recebidoEm) upd.recebidoEm = Date.now();
+        if (['faturado', 'entregue'].includes(a.status) && !p.faturadoEm) upd.faturadoEm = Date.now();
+        b.update(doc(db, 'pedidos', a.appId), upd); n++;
+      });
+      if (n) await b.commit();
+      $('#cg-andprev').innerHTML = `<div class="note ok">${n} pedido(s) atualizado(s) no app.</div>`; toast(n + ' andamento(s) enviado(s) ao app.');
+    } catch (err) { $('#cg-andprev').innerHTML = '<div class="note crit">Arquivo inválido ou sem permissão: ' + h(err.message) + '</div>'; }
+    e.target.value = '';
   };
-  $('#cg-rec').onclick = async () => {
-    if (!(await confirma('Marcar ' + novos.length + ' pedido(s) como Recebidos?', 'Marcar'))) return;
-    const b = writeBatch(db); novos.forEach(p => b.update(doc(db, 'pedidos', p.id), { status: 'recebido', recebidoEm: Date.now(), statusEm: Date.now() }));
-    try { await b.commit(); toast('Pedidos marcados como recebidos.'); } catch (e) { toast(erroMsg(e)); }
+  $('#cg-exp').onclick = async () => {
+    const out = novos.map(p => ({ appId: p.id, data: p.data, clienteDoc: p.clienteDoc, clienteNome: p.clienteNome, itens: p.itens, total: p.total, condicaoId: p.condicaoId, condicaoNome: p.condicaoNome, prazo: p.prazo, obs: p.obs, dataEntrega: p.dataEntrega, vendedorId: p.vendedorId, vendedorNome: p.vendedorNome, criadoMs: p.criadoMs }));
+    const cl = cnovos.map(c => { const { uid, status, ...resto } = c; return resto; });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify({ gerado: new Date().toISOString(), clientes: cl, pedidos: out }, null, 1)], { type: 'application/json' })); a.download = 'pedidos-app-' + ymd() + '.json'; a.click();
+    try {
+      const b = writeBatch(db); const t = Date.now();
+      novos.forEach(p => b.update(doc(db, 'pedidos', p.id), { status: 'recebido', recebidoEm: t, statusEm: t }));
+      cnovos.forEach(c => b.update(doc(db, 'clientesNovos', c.doc), { status: 'enviado', enviadoEm: t }));
+      await b.commit(); toast('Arquivo baixado. Pedidos marcados como recebidos.');
+    } catch (e) { toast('Baixou, mas não marquei como recebidos: ' + erroMsg(e), 5000); }
   };
 }
 async function enviaCarga() {
