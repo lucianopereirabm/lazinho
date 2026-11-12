@@ -18,7 +18,7 @@ export const firebaseConfig = {
   messagingSenderId: "704082318801",
   appId: "1:704082318801:web:d33a1ce7c1a579888b7cf0"
 };
-export const VERSAO = 'v15';
+export const VERSAO = 'v16';
 
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);

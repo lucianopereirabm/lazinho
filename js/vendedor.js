@@ -148,6 +148,31 @@ function renderPedidos() {
   $$('#t-pedidos [data-ped]').forEach(b => b.onclick = () => abrePedido(b.dataset.ped));
 }
 
+// DANFE (PDF com boleto) e XML da nota, gravados pelo Portal em /anexos/<pedido>
+const b64Blob = (b64, tipo) => { const bin = atob(b64), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return new Blob([u], { type: tipo }); };
+async function anexoNota(p, qual, btn) {
+  const msg = $('#sh-anx-msg'), say = t => { if (msg) msg.textContent = t; };
+  const txt = btn.textContent; btn.disabled = true; btn.textContent = 'Preparando…'; say('');
+  try {
+    const m = await getDoc(doc(db, 'anexos', p.id));
+    if (!m.exists()) { say('O DANFE desta nota ainda não chegou ao app. Aguarde alguns minutos (o Portal envia sozinho) e toque de novo.'); return; }
+    const x = m.data(), nome = 'NF-' + (x.nfNumero || p.nfNumero || '');
+    const arq = [];
+    if (qual !== 'xml') {
+      let b64 = ''; for (let i = 0; i < (x.partes || 0); i++) { const q = await getDoc(doc(db, 'anexos', p.id + '~p' + i)); if (!q.exists()) throw new Error('O PDF ainda está chegando, tente de novo em instantes.'); b64 += q.data().dados || ''; }
+      if (!b64) throw new Error('PDF indisponível.');
+      arq.push(new File([b64Blob(b64, 'application/pdf')], nome + '-danfe.pdf', { type: 'application/pdf' }));
+    }
+    if (qual !== 'danfe') { if (!x.xml) throw new Error('XML indisponível.'); arq.push(new File([new Blob([x.xml], { type: 'text/xml' })], (x.chave || nome) + '-nfe.xml', { type: 'text/xml' })); }
+    if (qual === 'envia' && navigator.canShare && navigator.canShare({ files: arq })) {
+      try { await navigator.share({ files: arq, title: nome, text: 'Segue a nota fiscal ' + (x.nfNumero || '') + ' — Pão de Queijo Lazinho' }); return; } catch (e) { if (e && e.name === 'AbortError') return; }
+    }
+    arq.forEach((f, i) => setTimeout(() => { const u = URL.createObjectURL(f), a = document.createElement('a'); a.href = u; a.download = f.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 30000); }, i * 400));
+    say(qual === 'envia' ? 'Seu aparelho não abriu o compartilhamento; baixei os arquivos para você enviar.' : 'Arquivo baixado.');
+  } catch (e) { say('Não consegui: ' + erroMsg(e)); }
+  finally { btn.disabled = false; btn.textContent = txt; }
+}
+
 function abrePedido(id) {
   const p = pedidos.find(x => x.id === id); if (!p) return;
   const passos = [
@@ -170,6 +195,10 @@ function abrePedido(id) {
     ${canc ? `<div class="note crit">Pedido cancelado${p.motivoCancel ? ': ' + h(p.motivoCancel) : ''}.</div>` : `<div class="card"><div class="label" style="margin-bottom:8px">Andamento</div><ul class="steps">${passos.map(s => `<li class="${s.on ? 'on' : ''}">${h(s.t)}</li>`).join('')}</ul></div>`}
     ${p.status !== 'novo' && p.status !== 'cancelado' ? '<div class="note">Este pedido já foi recebido pela Lazinho e não pode mais ser alterado no app.</div>' : ''}
     ${p._pend ? '<div class="note warn">Este pedido ainda não subiu: está salvo no celular e envia sozinho quando houver sinal.</div>' : ''}
+    ${['faturado', 'entregue'].includes(p.status) && p.nfNumero ? `<div class="card"><div class="label" style="margin-bottom:8px">Nota fiscal ${h(p.nfNumero)}</div><div class="stack">
+      <button class="btn primary big" id="sh-danfe">📄 Baixar DANFE (com boleto)</button>
+      <button class="btn big" id="sh-xml">🧾 Baixar XML da nota</button>
+      <button class="btn wheat big" id="sh-envia">📤 Enviar DANFE + XML ao cliente</button></div><div class="muted small" id="sh-anx-msg" style="margin-top:6px"></div></div>` : ''}
     <div class="stack">
       ${p.status === 'novo' && me.perm.pedido && p.vendedorId === me.vendedorId ? '<button class="btn primary big" id="sh-edit">Editar pedido</button>' : ''}
       ${me.perm.pedido ? '<button class="btn wheat big" id="sh-rep">Repetir este pedido</button>' : ''}
@@ -178,6 +207,7 @@ function abrePedido(id) {
     </div>`);
   $('#sh-x').onclick = fechaSheet;
   const ed = $('#sh-edit'); if (ed) ed.onclick = () => { np = novoVazio(p.clienteDoc); np.editId = p.id; np.data = p.data; np.dataEntrega = p.dataEntrega || ''; np.obs = p.obs || ''; np.condicaoId = p.condicaoId || ''; np.itens = (p.itens || []).map(i => ({ key: i.prodId + '|' + i.un, qtd: String(i.qtd), preco: String(i.preco) })); fechaSheet(); vaiTab('novo'); };
+  ['danfe', 'xml', 'envia'].forEach(k => { const b = $('#sh-' + k); if (b) b.onclick = () => anexoNota(p, k, b); });
   const rp = $('#sh-rep'); if (rp) rp.onclick = () => { np = novoVazio(p.clienteDoc); np.itens = (p.itens || []).map(i => ({ key: i.prodId + '|' + i.un, qtd: String(i.qtd), preco: String(i.preco) })); np.condicaoId = p.condicaoId || ''; fechaSheet(); vaiTab('novo'); };
   const vv = $('#sh-vis'); if (vv) vv.onclick = () => { fechaSheet(); abreVisita(p.clienteDoc); };
   const c = $('#sh-canc'); if (c) c.onclick = async () => {
