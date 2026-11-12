@@ -5,7 +5,7 @@ import {
   toast, abreModal, fechaModal, confirma, erroMsg, atualizaAgora, statusInfo, STATUS, VERSAO
 } from './fb.js';
 
-const ADMIN_UID = 'z0MjWvFOXqUqWPS2I0vD6mBxOOR2';
+const ADMIN_UIDS = ['z0MjWvFOXqUqWPS2I0vD6mBxOOR2', 'vqp2w3eMkBQvhPiIxzC4PPVHOM73'];
 let pedidos = [], visitas = [], vendedores = [], usuarios = [], clientesNovos = [], nClientes = 0, nProdutos = 0;
 const SO_USUARIOS = location.hash === '#usuarios';   // modo embutido no Portal: só a tela de vendedores/acessos
 let unsubs = [], aba = SO_USUARIOS ? 'vendedores' : 'pedidos';
@@ -30,7 +30,7 @@ const mostra = x => { $('#g-login').hidden = x !== 'login'; $('#g-app').hidden =
 onAuthStateChanged(auth, user => {
   unsubs.forEach(u => { try { u(); } catch (e) {} }); unsubs = [];
   if (!user) { $('#sair').hidden = true; $('#atualiza').hidden = true; $('#quem').innerHTML = ''; mostra('login'); return; }
-  if (user.uid !== ADMIN_UID) { $('#adm-msg').textContent = 'Este login não é de administrador. Vendedores usam o app (index).'; signOut(auth); return; }
+  if (!ADMIN_UIDS.includes(user.uid)) { $('#adm-msg').textContent = 'Este login não é de administrador. Vendedores usam o app (index).'; signOut(auth); return; }
   $('#sair').hidden = false; $('#atualiza').hidden = false; $('#quem').innerHTML = '<b>Luciano</b>Administrador'; mostra('app'); assina(); desenha();
 });
 function assina() {

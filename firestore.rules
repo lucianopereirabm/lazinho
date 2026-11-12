@@ -4,7 +4,7 @@ service cloud.firestore {
 
     // Administrador principal (Luciano)
     function logado() { return request.auth != null; }
-    function isAdmin() { return logado() && request.auth.uid == 'z0MjWvFOXqUqWPS2I0vD6mBxOOR2'; }
+    function isAdmin() { return logado() && request.auth.uid in ['z0MjWvFOXqUqWPS2I0vD6mBxOOR2', 'vqp2w3eMkBQvhPiIxzC4PPVHOM73']; }
     // Vendedor ligado a este login (cadastrado pela Gestão em "usuarios")
     function isVendedor() { return logado() && exists(/databases/$(database)/documents/usuarios/$(request.auth.uid)); }
     function meuVendedor() { return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.vendedorId; }
