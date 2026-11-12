@@ -432,7 +432,14 @@ const soDig = t => String(t || '').replace(/\D/g, '');
 const waNum = l => { let d = soDig(l.telefone); if (!d) return ''; if (d.length <= 11) d = '55' + d; return d; };
 const igUser = v => String(v || '').trim().replace(/^https?:\/\/(www\.)?instagram\.com\//i, '').replace(/^@/, '').split(/[\/?#\s]/)[0].replace(/[^A-Za-z0-9._]/g, '');
 const primeiroNome = () => String(me.nome || '').trim().split(/\s+/)[0];
-const msgLead = l => `Olá, tudo bem? Meu nome é ${primeiroNome()}, sou do Pão de Queijo Lazinho, pão de queijo congelado com receita tradicional de Minas. Gostaria de apresentar nosso produto para ${l.nome}. Posso te mandar o catálogo e combinar uma amostra?`;
+const MSG_BASE = 'Olá, tudo bem? Meu nome é {vendedor}, sou do Pão de Queijo Lazinho, pão de queijo congelado com receita tradicional de Minas. Gostaria de apresentar nosso produto para {nome}. Posso te mandar o catálogo e combinar uma amostra?';
+const chMsg = () => 'lz-msg-' + (me.uid || me.vendedorId), chCat = () => 'lz-cat-' + (me.uid || me.vendedorId);
+const msgModelo = () => lsGet(chMsg()) || MSG_BASE;
+const msgPara = (modelo, l) => modelo.split('{nome}').join(l.nome || '').split('{vendedor}').join(primeiroNome());
+// catálogo anexado fica guardado no celular (IndexedDB), só neste aparelho
+const idb = () => new Promise((ok, er) => { const r = indexedDB.open('lazinho-anexos', 1); r.onupgradeneeded = () => r.result.createObjectStore('f'); r.onsuccess = () => ok(r.result); r.onerror = () => er(r.error); });
+const anexoGet = async () => { try { const d = await idb(); return await new Promise(ok => { const q = d.transaction('f').objectStore('f').get(chCat()); q.onsuccess = () => ok(q.result || null); q.onerror = () => ok(null); }); } catch (e) { return null; } };
+const anexoSet = async f => { try { const d = await idb(); await new Promise((ok, er) => { const t = d.transaction('f', 'readwrite'); f ? t.objectStore('f').put(f, chCat()) : t.objectStore('f').delete(chCat()); t.oncomplete = ok; t.onerror = () => er(t.error); }); return true; } catch (e) { return false; } };
 const proxTag = l => { if (!l.proximoContato || l.etapa === 'cliente' || l.etapa === 'perdido') return ''; const hj = ymd(); const c = l.proximoContato < hj ? 'no' : l.proximoContato === hj ? 'y' : ''; return `<span class="tag ${c}">${l.proximoContato < hj ? 'Atrasado · ' : l.proximoContato === hj ? 'Hoje · ' : 'Retorno '}${dataBR(l.proximoContato)}</span>`; };
 
 function renderFunil() {
@@ -479,7 +486,13 @@ function abreLead(id) {
   const campo = (i, rot, val, tipo = 'text', ph = '') => `<label class="field"><span>${rot}</span><input type="${tipo}" id="${i}" value="${h(val || '')}" placeholder="${ph}" autocomplete="off"></label>`;
   sheet(`<div class="spread"><button class="btn ghost" id="lf-x">← Voltar</button><h3>${novo ? 'Novo contato' : h(l.nome)}</h3><span></span></div>
     ${novo ? '' : `<div><span class="tag">${h(nomeTipo(l.tipo))}</span> <span class="tag y">${h(nomeEtapa(l.etapa))}</span> ${proxTag(l)}</div>
-    <div class="row2">${wa ? `<a class="btn primary" target="_blank" rel="noopener" href="https://wa.me/${wa}?text=${encodeURIComponent(msgLead(l))}">WhatsApp</a>` : ''}${l.telefone ? `<a class="btn" href="tel:${h(soDig(l.telefone))}">Ligar</a>` : ''}${ig ? `<a class="btn" target="_blank" rel="noopener" href="https://ig.me/m/${h(ig)}">Instagram</a>` : ''}${maps ? `<a class="btn" target="_blank" rel="noopener" href="${h(maps)}">Mapa</a>` : ''}</div>`}
+    <div class="row2">${l.telefone ? `<a class="btn" href="tel:${h(soDig(l.telefone))}">Ligar</a>` : ''}${ig ? `<a class="btn" target="_blank" rel="noopener" href="https://ig.me/m/${h(ig)}">Instagram</a>` : ''}${maps ? `<a class="btn" target="_blank" rel="noopener" href="${h(maps)}">Mapa</a>` : ''}</div>`}
+    ${novo || !wa ? '' : `<div class="card"><div class="label" style="margin-bottom:6px">Mensagem de WhatsApp</div>
+      <label class="field"><span>Sua mensagem padrão (se mudar, vale para os próximos clientes)</span><textarea id="lw-msg" rows="5">${h(msgPara(msgModelo(), l))}</textarea></label>
+      <label class="field"><span>Link do catálogo (opcional, vai no fim da mensagem)</span><input type="url" id="lw-cat" value="${h(lsGet(chCat()) || "")}" placeholder="https://…" autocomplete="off"></label>
+      <div class="muted small" id="lw-anexo"></div>
+      <div class="row2"><label class="btn" style="text-align:center">📎 Anexar catálogo<input type="file" id="lw-file" accept="application/pdf,image/*" hidden></label><button class="btn ghost" id="lw-orig" type="button">Mensagem original</button></div>
+      <button class="btn primary big" id="lw-enviar" type="button">Enviar no WhatsApp</button></div>`}
     <div class="card"><div class="label" style="margin-bottom:6px">Andamento</div>
       <label class="field"><span>Etapa</span><select id="lf-etapa">${ETAPAS.map(([k, n]) => `<option value="${k}" ${l.etapa === k ? 'selected' : ''}>${h(n)}</option>`).join('')}</select></label>
       ${campo('lf-prox', 'Próximo contato', l.proximoContato, 'date')}
@@ -505,6 +518,24 @@ function abreLead(id) {
     const hist = d.etapa !== l.etapa && !novo ? [histItem('etapa', 'Etapa: ' + nomeEtapa(l.etapa) + ' → ' + nomeEtapa(d.etapa))] : [];
     gravaLead(l, d, hist); toast(novo ? 'Contato cadastrado.' : 'Alterações salvas.'); fechaSheet();
   };
+  const lwm = $('#lw-msg'); if (lwm) {
+    const textoFinal = () => { const c = ($('#lw-cat').value || '').trim(); return lwm.value.trim() + (c ? '\n' + c : ''); };
+    const guarda = () => { let m = lwm.value.trim(); if (l.nome) m = m.split(l.nome).join('{nome}'); const pv = primeiroNome(); if (pv) m = m.split(pv).join('{vendedor}'); lsSet(chMsg(), m === MSG_BASE ? '' : m); lsSet(chCat(), ($('#lw-cat').value || '').trim()); };
+    let anexo = null;
+    const mostra = () => { $('#lw-anexo').innerHTML = anexo ? '📎 ' + h(anexo.name) + ' <button class="btn ghost sm" id="lw-rm" type="button">remover</button>' : 'Sem arquivo anexado.'; const rm = $('#lw-rm'); if (rm) rm.onclick = async () => { await anexoSet(null); anexo = null; mostra(); }; };
+    anexoGet().then(f => { anexo = f; mostra(); });
+    $('#lw-file').onchange = async e => { const f = e.target.files[0]; if (!f) return; if (f.size > 15e6) return toast('Arquivo grande demais (máx. 15 MB).'); if (await anexoSet(f)) { anexo = f; mostra(); toast('Catálogo guardado neste celular.'); } else toast('Não consegui guardar o arquivo.'); };
+    $('#lw-orig').onclick = () => { lsSet(chMsg(), ''); lwm.value = msgPara(MSG_BASE, l); toast('Mensagem original restaurada.'); };
+    $('#lw-enviar').onclick = async () => {
+      guarda(); const txt = textoFinal();
+      const reg = () => gravaLead(l, {}, [histItem('WhatsApp', 'Mensagem enviada pelo app' + (anexo ? ' com catálogo anexo' : ''))]);
+      if (anexo && navigator.canShare && navigator.canShare({ files: [anexo] })) {
+        try { await navigator.share({ files: [anexo], text: txt }); reg(); return; } catch (e) { if (e && e.name === 'AbortError') return; }
+      }
+      if (anexo) toast('Este celular não deixa anexar direto: mandei só o texto. Anexe o catálogo na conversa.');
+      reg(); window.open('https://wa.me/' + wa + '?text=' + encodeURIComponent(txt), '_blank');
+    };
+  }
   const ok = $('#lh-ok'); if (ok) ok.onclick = () => {
     const txt = v('lh-txt'); if (!txt) return toast('Escreva o que foi conversado.');
     const d = dados(); const prox = v('lh-prox'); if (prox) d.proximoContato = prox;
