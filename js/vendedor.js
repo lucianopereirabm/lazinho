@@ -115,7 +115,7 @@ function renderPedidos() {
   const validos = doMes.filter(p => p.status !== 'cancelado');
   const total = validos.reduce((a, p) => a + (+p.total || 0), 0);
   $('#t-pedidos').innerHTML = `
-    <div class="spread"><h2>Meus pedidos</h2>${me.perm.pedido ? '<button class="btn primary sm" id="p-novo">+ Novo pedido</button>' : ''}</div>
+    <div class="hero"><img src="img/logo.png" alt=""><div style="flex:1"><h2>Meus pedidos</h2><span>Olá, ${h(me.nome.split(' ')[0])}!</span></div>${me.perm.pedido ? '<button class="btn wheat sm" id="p-novo">+ Novo</button>' : ''}</div>
     <label class="field"><span>Mês</span><select id="p-mes">${meses.map(m => `<option value="${m}" ${m === fPed.mes ? 'selected' : ''}>${h(mesNome(m))}</option>`).join('')}</select></label>
     <div class="kpis">
       <div class="kpi"><b>${validos.length}</b><span>pedidos</span></div>
@@ -127,7 +127,7 @@ function renderPedidos() {
       <button class="item" data-ped="${h(p.id)}">
         <div class="t"><b>${h(p.clienteNome)}</b><span>${dataBR(p.data)} · ${(p.itens || []).map(i => i.qtd + ' ' + h(i.un)).join(' + ')}${p.entregueEm ? ' · entregue ' + dataBR(p.entregueEm) : ''}</span></div>
         <div class="r"><b>${brl(p.total)}</b>${pill(p.status)}${p._pend ? '<br><span class="tag y">aguardando sinal</span>' : ''}</div>
-      </button>`).join('') : `<div class="empty"><b>Nenhum pedido aqui</b>Toque em “+ Novo pedido” para digitar o primeiro.</div>`}</div>`;
+      </button>`).join('') : `<div class="empty"><img class="empty-logo" src="img/logo.png" alt=""><b>Nenhum pedido aqui</b>Toque em “+ Novo pedido” para digitar o primeiro.</div>`}</div>`;
   const pn = $('#p-novo'); if (pn) pn.onclick = () => { np = novoVazio(); vaiTab('novo'); };
   $('#p-mes').onchange = e => { fPed.mes = e.target.value; renderPedidos(); };
   $$('#t-pedidos [data-st]').forEach(b => b.onclick = () => { fPed.st = b.dataset.st; renderPedidos(); });
@@ -174,17 +174,79 @@ function abrePedido(id) {
 // ---------- NOVO PEDIDO ----------
 let renderNovoSePreciso = () => {};   // não redesenha enquanto digita
 function renderNovo() {
-  const ops = opcoesProduto();
   const cli = cliPor(np.clienteDoc);
   if (!np.condicaoId && condicoes.length) { const b14 = condicoes.find(c => /boleto.*14/i.test(c.nome)); np.condicaoId = (b14 || condicoes[0]).id; }
+  const ini = cli ? h((cli.fantasia || cli.nome || '?').trim()[0].toUpperCase()) : '+';
   $('#t-novo').innerHTML = `
-    <h2>${np.editId ? 'Editando pedido' : 'Novo pedido'}</h2>
-    ${np.editId ? '<div class="note warn">Você está alterando um pedido que ainda não foi recebido pela Lazinho.</div>' : ''}
-    <button class="item" id="n-cli"><div class="t"><span>Cliente</span><b>${cli ? h(cli.fantasia || cli.nome) : 'Toque para escolher o cliente'}</b>${cli ? `<span>${h(cli.municipio || '')}${cli.uf ? '/' + h(cli.uf) : ''} · ${h(docFmt(cli.doc))}</span>` : ''}</div><div class="r">›</div></button>
-    ${!ops.length ? '<div class="note warn">Os produtos ainda não foram carregados. Se acabou de instalar, aguarde alguns segundos com internet.</div>' : ''}
-    <div class="itens" id="n-itens"></div>
-    <button class="btn" id="n-add">+ Adicionar item</button>
-    <div class="total"><span>Total</span><span id="n-total">${brl(0)}</span></div>
+    <div class="hero"><img src="img/logo.png" alt=""><div><h2>${np.editId ? 'Editando pedido' : 'Novo pedido'}</h2><span>${np.editId ? 'Ainda não recebido pela Lazinho' : 'Escolha o cliente e os produtos'}</span></div></div>
+    <button class="cli-card" id="n-cli"><span class="av">${ini}</span><span class="t"><small>Cliente</small><b>${cli ? h(cli.fantasia || cli.nome) : 'Toque para escolher o cliente'}</b>${cli ? `<small>${h(cli.municipio || '')}${cli.uf ? '/' + h(cli.uf) : ''} · ${h(docFmt(cli.doc))}</small>` : ''}</span><span class="r">›</span></button>
+    <input type="search" id="n-busca" placeholder="Buscar produto ou código" autocomplete="off" value="${h(np.busca || '')}">
+    ${!produtos.length ? '<div class="note warn">Os produtos ainda não foram carregados. Se acabou de instalar, aguarde alguns segundos com internet.</div>' : ''}
+    <div class="catalogo" id="n-cat"></div>
+    <div class="cartbar" id="n-cart" hidden><div><small id="n-cart-n"></small><b id="n-total">${brl(0)}</b></div><button class="btn wheat" id="n-rev">Revisar pedido ›</button></div>`;
+  desenhaCatalogo();
+  $('#n-cli').onclick = () => escolheCliente(d => { np.clienteDoc = d; renderNovo(); });
+  $('#n-busca').oninput = e => { np.busca = e.target.value; desenhaCatalogo(); };
+  $('#n-rev').onclick = revisaPedido;
+}
+renderNovoSePreciso = () => { /* produtos/condições chegaram: atualiza sem perder o que foi digitado */
+  if (!$('#n-cat')) return renderNovo();
+  if (document.activeElement && document.activeElement.closest('#n-cat')) return;
+  desenhaCatalogo();
+};
+const fotoProd = p => p.foto ? `<img src="${h(p.foto)}" alt="">` : `<span class="ph">${h((p.nome || '?')[0].toUpperCase())}</span>`;
+const itPor = key => np.itens.find(i => i.key === key);
+function desenhaCatalogo() {
+  const q = semAcento(np.busca || '');
+  const lista = produtos.filter(p => !q || semAcento(p.nome + ' ' + (p.codigo || '')).includes(q)).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  $('#n-cat').innerHTML = lista.length ? lista.map(p => `
+    <div class="prod"><div class="ph-box">${fotoProd(p)}</div>
+      <div class="pinfo"><b>${h(p.nome)}</b>${p.codigo ? `<small>Cód. ${h(p.codigo)}</small>` : ''}
+        ${(p.unidades || []).map(u => { const key = p.id + '|' + u.un, it = itPor(key), q = it ? (+it.qtd || 0) : 0; return `
+        <div class="un" data-key="${h(key)}"><span class="un-t"><b>${h(u.un)}</b> <span class="num">${brl(+u.preco || 0)}</span></span>
+          <span class="step"><button data-d="-1" aria-label="menos" ${q ? '' : 'disabled'}>−</button><input type="number" inputmode="numeric" min="0" value="${q || ''}" placeholder="0" aria-label="quantidade"><button data-d="1" aria-label="mais">+</button></span></div>`; }).join('')}
+      </div></div>`).join('') : `<div class="empty"><img class="empty-logo" src="img/logo.png" alt=""><b>${produtos.length ? 'Nenhum produto encontrado' : 'Sem produtos ainda'}</b>${produtos.length ? 'Tente outra palavra.' : 'A Lazinho ainda vai liberar o catálogo.'}</div>`;
+  atualizaCarrinho();
+}
+function setQtd(key, q) {
+  q = Math.max(0, Math.floor(+q || 0));
+  np.itens = np.itens.filter(i => i.key);
+  let it = itPor(key);
+  if (!it) { const o = opPorKey(key); if (!o) return; it = { key, qtd: '', preco: String(o.preco) }; np.itens.push(it); }
+  it.qtd = q ? String(q) : '';
+  if (!q) np.itens = np.itens.filter(i => i.key !== key);
+  if (!np.itens.length) np.itens = [{ key: '', qtd: '', preco: '' }];
+}
+$('#t-novo').addEventListener('click', e => {
+  const b = e.target.closest('.un button'); if (!b) return;
+  const row = b.closest('.un'), key = row.dataset.key, it = itPor(key);
+  setQtd(key, (it ? +it.qtd || 0 : 0) + (+b.dataset.d));
+  const q = itPor(key) ? +itPor(key).qtd : 0; row.querySelector('input').value = q || ''; row.querySelector('[data-d="-1"]').disabled = !q;
+  atualizaCarrinho();
+});
+$('#t-novo').addEventListener('input', e => {
+  const i = e.target.closest('.un input'); if (!i) return;
+  const row = i.closest('.un'); setQtd(row.dataset.key, i.value); row.querySelector('[data-d="-1"]').disabled = !(+i.value > 0); atualizaCarrinho();
+});
+function atualizaCarrinho() {
+  const L = np.itens.filter(i => i.key && +i.qtd > 0), n = L.length, t = totalNovo();
+  const bar = $('#n-cart'); if (!bar) return;
+  bar.hidden = !n; $('#n-cart-n').textContent = n + (n === 1 ? ' item no pedido' : ' itens no pedido'); $('#n-total').textContent = brl(t);
+}
+function totalNovo() { return r2(np.itens.reduce((a, it) => a + (+it.qtd || 0) * (+String(it.preco).replace(',', '.') || 0), 0)); }
+function revisaPedido() {
+  const L = np.itens.filter(i => i.key && +i.qtd > 0);
+  if (!L.length) return toast('Escolha pelo menos um produto.');
+  const cli = cliPor(np.clienteDoc);
+  sheet(`
+    <div class="hero"><img src="img/logo.png" alt=""><div><h2>Revisar pedido</h2><span>${cli ? h(cli.fantasia || cli.nome) : 'Escolha o cliente'}</span></div></div>
+    ${cli ? '' : '<button class="btn wheat" id="r-cli">Escolher cliente</button>'}
+    <div class="list">${L.map(it => { const o = opPorKey(it.key), p = produtos.find(x => x.id === (o && o.prodId)) || {}; return `
+      <div class="rv" data-key="${h(it.key)}"><div class="ph-box sm">${fotoProd(p)}</div>
+        <div class="rv-t"><b>${h(o ? o.nome : it.key)}</b><small>${h(o ? o.un : '')} · ${it.qtd} un.</small></div>
+        <label class="rv-p"><small>Preço</small><input type="number" inputmode="decimal" min="0" step="0.01" value="${h(it.preco)}" ${me.perm.preco ? '' : 'readonly'}></label>
+        <b class="num rv-s">${brl(r2((+it.qtd || 0) * (+String(it.preco).replace(',', '.') || 0)))}</b></div>`; }).join('')}</div>
+    <div class="total"><span>Total</span><span id="r-total">${brl(totalNovo())}</span></div>
     <label class="field"><span>Pagamento</span><select id="n-cond">${condicoes.map(c => `<option value="${h(c.id)}" ${c.id === np.condicaoId ? 'selected' : ''}>${h(c.nome)}</option>`).join('')}</select></label>
     <div class="grid2" style="gap:10px">
       <label class="field"><span>Data do pedido</span><input type="date" id="n-data" value="${h(np.data)}"></label>
@@ -192,44 +254,20 @@ function renderNovo() {
     </div>
     <label class="field"><span>Observação</span><textarea id="n-obs" placeholder="Ex.: entregar pela manhã">${h(np.obs)}</textarea></label>
     <button class="btn primary big" id="n-salvar">${np.editId ? 'Salvar alterações' : 'Enviar pedido'}</button>
-    <button class="btn ghost" id="n-limpa">${np.editId ? 'Cancelar edição' : 'Limpar tudo'}</button>`;
-  desenhaItens();
-  $('#n-cli').onclick = () => escolheCliente(d => { np.clienteDoc = d; renderNovo(); });
-  $('#n-add').onclick = () => { np.itens.push({ key: '', qtd: '', preco: '' }); desenhaItens(); };
+    <button class="btn ghost" id="r-volta">‹ Voltar e continuar escolhendo</button>
+    <button class="btn ghost danger" id="n-limpa">${np.editId ? 'Cancelar edição' : 'Limpar tudo'}</button>`);
+  const rc = $('#r-cli'); if (rc) rc.onclick = () => escolheCliente(d => { np.clienteDoc = d; revisaPedido(); });
+  $$('#sheet .rv').forEach(row => row.querySelector('input').addEventListener('input', e => {
+    const it = itPor(row.dataset.key); it.preco = e.target.value;
+    row.querySelector('.rv-s').textContent = brl(r2((+it.qtd || 0) * (+String(it.preco).replace(',', '.') || 0))); $('#r-total').textContent = brl(totalNovo());
+  }));
   $('#n-cond').onchange = e => np.condicaoId = e.target.value;
   $('#n-data').onchange = e => np.data = e.target.value;
   $('#n-ent').onchange = e => np.dataEntrega = e.target.value;
   $('#n-obs').oninput = e => np.obs = e.target.value;
-  $('#n-limpa').onclick = async () => { if (await confirma(np.editId ? 'Cancelar a edição? As alterações serão descartadas.' : 'Limpar o pedido em digitação?', 'Sim')) { const ed = np.editId; np = novoVazio(); if (ed) vaiTab('pedidos'); else renderNovo(); } };
-  $('#n-salvar').onclick = salvaPedido;
-}
-renderNovoSePreciso = () => { /* dados de produto/condição chegaram: só redesenha se ainda não começou a digitar */
-  if (!np.clienteDoc && np.itens.every(i => !i.qtd && !i.key) && !np.obs) renderNovo();
-};
-function desenhaItens() {
-  const ops = opcoesProduto();
-  $('#n-itens').innerHTML = np.itens.map((it, i) => `
-    <div class="itrow" data-i="${i}">
-      <label class="field full"><span>Produto</span><select data-f="key"><option value="">Escolha…</option>${ops.map(o => `<option value="${h(o.key)}" ${o.key === it.key ? 'selected' : ''}>${h(o.nome)} — ${h(o.un)}</option>`).join('')}</select></label>
-      <label class="field"><span>Quantidade</span><input type="number" inputmode="numeric" min="0" step="1" data-f="qtd" value="${h(it.qtd)}" placeholder="0"></label>
-      <label class="field"><span>Preço (R$)</span><input type="number" inputmode="decimal" min="0" step="0.01" data-f="preco" value="${h(it.preco)}" placeholder="0,00" ${me.perm.preco ? '' : 'readonly'}></label>
-      <div class="sub"><span>Subtotal: <b class="num" data-sub>${brl(r2((+it.qtd || 0) * (+String(it.preco).replace(',', '.') || 0)))}</b></span>${np.itens.length > 1 ? `<button class="btn ghost sm danger" data-rm="${i}">Remover</button>` : '<span></span>'}</div>
-    </div>`).join('');
-  $$('#n-itens .itrow').forEach(row => {
-    const i = +row.dataset.i, it = np.itens[i];
-    row.querySelectorAll('[data-f]').forEach(inp => inp.addEventListener('input', () => {
-      const f = inp.dataset.f; it[f] = inp.value;
-      if (f === 'key') { const o = opPorKey(inp.value); if (o) { it.preco = String(o.preco); row.querySelector('[data-f=preco]').value = it.preco; } }
-      row.querySelector('[data-sub]').textContent = brl(r2((+it.qtd || 0) * (+String(it.preco).replace(',', '.') || 0)));
-      totalNovo();
-    }));
-    const rm = row.querySelector('[data-rm]'); if (rm) rm.onclick = () => { np.itens.splice(i, 1); desenhaItens(); };
-  });
-  totalNovo();
-}
-function totalNovo() {
-  const t = np.itens.reduce((a, it) => a + (+it.qtd || 0) * (+String(it.preco).replace(',', '.') || 0), 0);
-  const el = $('#n-total'); if (el) el.textContent = brl(r2(t));
+  $('#r-volta').onclick = () => { fechaSheet(); renderNovo(); };
+  $('#n-limpa').onclick = async () => { if (await confirma(np.editId ? 'Cancelar a edição? As alterações serão descartadas.' : 'Limpar o pedido em digitação?', 'Sim')) { const ed = np.editId; np = novoVazio(); fechaSheet(); if (ed) vaiTab('pedidos'); else renderNovo(); } };
+  $('#n-salvar').onclick = () => salvaPedido();
 }
 function salvaPedido() {
   const cli = cliPor(np.clienteDoc);
@@ -260,7 +298,7 @@ function salvaPedido() {
     setDoc(doc(db, 'pedidos', id), reg).catch(e => toast(erroMsg(e)));
     toast('Pedido de ' + brl(total) + ' salvo' + (navigator.onLine ? ' e enviado.' : ' no celular. Envia quando houver sinal.'));
   }
-  np = novoVazio(); fPed.mes = mesDe(reg.data); fPed.st = 'todos'; vaiTab('pedidos');
+  np = novoVazio(); fechaSheet(); fPed.mes = mesDe(reg.data); fPed.st = 'todos'; vaiTab('pedidos');
 }
 
 // ---------- escolher cliente ----------
@@ -273,7 +311,7 @@ function escolheCliente(cb) {
     $('#cl-lista').innerHTML = l.slice(0, 80).map(c => {
       const r = resumo[c.doc] || {};
       return `<button class="item" data-d="${h(c.doc)}"><div class="t"><b>${h(c.fantasia || c.nome)}</b><span>${h(c.municipio || '')}${c.uf ? '/' + h(c.uf) : ''} · ${h(docFmt(c.doc))}</span></div><div class="r">${r.ultima ? '<span class="small muted">última ' + dataBR(r.ultima) + '</span>' : ''}</div></button>`;
-    }).join('') || '<div class="empty"><b>Nenhum cliente encontrado</b>' + (me.perm.cliente ? 'Use “+ Novo cliente” na aba Clientes.' : 'Se for cliente novo, peça o cadastro à Lazinho.') + '</div>';
+    }).join('') || '<div class="empty"><img class="empty-logo" src="img/logo.png" alt=""><b>Nenhum cliente encontrado</b>' + (me.perm.cliente ? 'Use “+ Novo cliente” na aba Clientes.' : 'Se for cliente novo, peça o cadastro à Lazinho.') + '</div>';
     if (l.length > 80) $('#cl-lista').insertAdjacentHTML('beforeend', `<div class="muted small" style="text-align:center">Mostrando 80 de ${l.length}. Digite mais letras para filtrar.</div>`);
     $$('#cl-lista [data-d]').forEach(b => b.onclick = () => { fechaSheet(); cb(b.dataset.d); });
   };
@@ -291,12 +329,12 @@ function renderClientes() {
   const nComp = clientes.filter(compMes).length;
   if (fCli.f === 'comprou') l = l.filter(compMes); else if (fCli.f === 'nao') l = l.filter(c => !compMes(c));
   $('#t-clientes').innerHTML = `
-    <div class="spread"><h2>Clientes</h2>${me.perm.cliente ? '<button class="btn primary sm" id="c-novo">+ Novo cliente</button>' : ''}</div>
+    <div class="hero"><img src="img/logo.png" alt=""><div style="flex:1"><h2>Clientes</h2><span>Ordem alfabética · última venda</span></div>${me.perm.cliente ? '<button class="btn wheat sm" id="c-novo">+ Novo</button>' : ''}</div>
     <input type="search" id="c-q" placeholder="Buscar por nome, cidade ou CNPJ" value="${h(fCli.q)}" autocomplete="off">
     <div class="chips">${[['todos', 'Todos (' + clientes.length + ')'], ['comprou', 'Compraram em ' + mesNome(mes).split('/')[0] + ' (' + nComp + ')'], ['nao', 'Não compraram no mês']].map(([k, tt]) => `<button class="chip" data-f="${k}" aria-pressed="${fCli.f === k}">${tt}</button>`).join('')}</div>
     <div class="list" id="c-lista">${l.slice(0, 120).map(c => { const r = resumo[c.doc] || {};
       return `<button class="item" data-d="${h(c.doc)}"><div class="t"><b>${h(c.fantasia || c.nome)}${c.novo ? ' <span class="tag y">novo</span>' : ''}</b><span>${h(c.municipio || '')}${c.uf ? '/' + h(c.uf) : ''}</span></div>
-      <div class="r">${r.ultima ? `<b>${dataBR(r.ultima)}</b><span class="muted">${brl(r.ultimoValor)}</span>` : '<span class="muted">sem compra</span>'}${compMes(c) ? '<br><span class="tag ok">comprou no mês</span>' : ''}</div></button>`; }).join('') || '<div class="empty"><b>Nenhum cliente</b>Os clientes aparecem depois da carga feita pela Lazinho.</div>'}</div>
+      <div class="r">${r.ultima ? `<b>${dataBR(r.ultima)}</b><span class="muted">${brl(r.ultimoValor)}</span>` : '<span class="muted">sem compra</span>'}${compMes(c) ? '<br><span class="tag ok">comprou no mês</span>' : ''}</div></button>`; }).join('') || '<div class="empty"><img class="empty-logo" src="img/logo.png" alt=""><b>Nenhum cliente</b>Os clientes aparecem depois da carga feita pela Lazinho.</div>'}</div>
     ${l.length > 120 ? `<div class="muted small" style="text-align:center">Mostrando 120 de ${l.length}. Use a busca.</div>` : ''}`;
   const cn = $('#c-novo'); if (cn) cn.onclick = () => abreNovoCliente();
   $('#c-q').oninput = e => { fCli.q = e.target.value; const p = e.target.selectionStart; renderClientes(); const i = $('#c-q'); i.focus(); i.setSelectionRange(p, p); };
@@ -367,11 +405,11 @@ function renderVisitas() {
   if (!meses.includes(fVis.mes)) fVis.mes = meses[0];
   const l = visitas.filter(v => mesDe(v.data) === fVis.mes);
   $('#t-visita').innerHTML = `
-    <div class="spread"><h2>Visitas</h2></div>
+    <div class="hero"><img src="img/logo.png" alt=""><div><h2>Visitas</h2><span>Fotos, preços e estoque no cliente</span></div></div>
     <button class="btn primary big" id="v-nova">📍 Registrar visita</button>
     <label class="field"><span>Mês</span><select id="v-mes">${meses.map(m => `<option value="${m}" ${m === fVis.mes ? 'selected' : ''}>${h(mesNome(m))}</option>`).join('')}</select></label>
     <div class="muted small">${l.length} visita(s) no mês</div>
-    <div class="list">${l.map(v => `<button class="item" data-v="${h(v.id)}"><div class="t"><b>${h(v.clienteNome)}</b><span>${dataBR(v.data)} ${new Date(v.criadoMs || 0).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} · ${(v.fotos || []).length} foto(s)${(v.precos || []).length ? ' · ' + v.precos.length + ' preço(s)' : ''}</span></div><div class="r">${v._pend ? '<span class="tag y">aguardando sinal</span>' : '›'}</div></button>`).join('') || '<div class="empty"><b>Nenhuma visita neste mês</b>Registre a visita no cliente com fotos, preços e estoque.</div>'}</div>`;
+    <div class="list">${l.map(v => `<button class="item" data-v="${h(v.id)}"><div class="t"><b>${h(v.clienteNome)}</b><span>${dataBR(v.data)} ${new Date(v.criadoMs || 0).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} · ${(v.fotos || []).length} foto(s)${(v.precos || []).length ? ' · ' + v.precos.length + ' preço(s)' : ''}</span></div><div class="r">${v._pend ? '<span class="tag y">aguardando sinal</span>' : '›'}</div></button>`).join('') || '<div class="empty"><img class="empty-logo" src="img/logo.png" alt=""><b>Nenhuma visita neste mês</b>Registre a visita no cliente com fotos, preços e estoque.</div>'}</div>`;
   $('#v-nova').onclick = () => abreVisita('');
   $('#v-mes').onchange = e => { fVis.mes = e.target.value; renderVisitas(); };
   $$('#t-visita [data-v]').forEach(b => b.onclick = () => abreDetalheVisita(b.dataset.v));
