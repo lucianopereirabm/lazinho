@@ -7,7 +7,9 @@ import {
 
 const ADMIN_UID = 'z0MjWvFOXqUqWPS2I0vD6mBxOOR2';
 let pedidos = [], visitas = [], vendedores = [], usuarios = [], clientesNovos = [], nClientes = 0, nProdutos = 0;
-let unsubs = [], aba = 'pedidos';
+const SO_USUARIOS = location.hash === '#usuarios';   // modo embutido no Portal: só a tela de vendedores/acessos
+let unsubs = [], aba = SO_USUARIOS ? 'vendedores' : 'pedidos';
+if (SO_USUARIOS) document.documentElement.classList.add('embutido');
 let fP = { mes: ymd().slice(0, 7), vend: '', st: '' }, fV = { mes: ymd().slice(0, 7), vend: '' };
 
 // ---------- login ----------

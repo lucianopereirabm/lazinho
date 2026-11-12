@@ -134,3 +134,4 @@ tr.click{cursor:pointer} tr.click:hover td{background:var(--sunk)}
 .login .logo{background:#FFF7E6;border:3px solid var(--wheat)}
 .login .logo img{display:block;margin:0 auto 6px;width:min(240px,70%);height:auto}
 .login .logo span{color:var(--red)}
+.embutido #menu{display:none!important}.embutido header.top{display:none}
