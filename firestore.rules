@@ -1,0 +1,49 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Administrador principal (Luciano)
+    function logado() { return request.auth != null; }
+    function isAdmin() { return logado() && request.auth.uid == 'z0MjWvFOXqUqWPS2I0vD6mBxOOR2'; }
+    // Vendedor ligado a este login (cadastrado pela Gestão em "usuarios")
+    function isVendedor() { return logado() && exists(/databases/$(database)/documents/usuarios/$(request.auth.uid)); }
+    function meuVendedor() { return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.vendedorId; }
+
+    match /usuarios/{uid} { allow read: if isAdmin() || (logado() && request.auth.uid == uid); allow write: if isAdmin(); }
+
+    // Cadastros e carga do Portal: vendedor lê, só administrador altera
+    match /vendedores/{id} { allow read: if isAdmin() || isVendedor(); allow write: if isAdmin(); }
+    match /clientes/{id}   { allow read: if isAdmin() || isVendedor(); allow write: if isAdmin(); }
+    match /produtos/{id}   { allow read: if isAdmin() || isVendedor(); allow write: if isAdmin(); }
+    match /condicoes/{id}  { allow read: if isAdmin() || isVendedor(); allow write: if isAdmin(); }
+    match /resumo/{id}     { allow read: if isAdmin() || isVendedor(); allow write: if isAdmin(); }
+    match /config/{id}     { allow read: if isAdmin() || isVendedor(); allow write: if isAdmin(); }
+
+    // Pedidos: o vendedor cria e enxerga só os próprios; só cancela enquanto "novo"
+    match /pedidos/{id} {
+      allow read: if isAdmin() || (isVendedor() && resource.data.vendedorId == meuVendedor());
+      allow create: if isAdmin() || (isVendedor()
+        && request.resource.data.vendedorId == meuVendedor()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.status == 'novo');
+      allow update: if isAdmin() || (isVendedor()
+        && resource.data.vendedorId == meuVendedor()
+        && resource.data.status == 'novo'
+        && request.resource.data.status == 'cancelado'
+        && request.resource.data.vendedorId == resource.data.vendedorId);
+      allow delete: if isAdmin();
+    }
+
+    // Visitas: o vendedor cria e enxerga só as próprias; só a Gestão altera ou apaga
+    match /visitas/{id} {
+      allow read: if isAdmin() || (isVendedor() && resource.data.vendedorId == meuVendedor());
+      allow create: if isAdmin() || (isVendedor()
+        && request.resource.data.vendedorId == meuVendedor()
+        && request.resource.data.uid == request.auth.uid);
+      allow update, delete: if isAdmin();
+    }
+
+    // Todo o resto: bloqueado
+    match /{document=**} { allow read, write: if false; }
+  }
+}

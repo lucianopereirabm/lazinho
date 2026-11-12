@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#B30000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Lazinho">
+<title>Lazinho Vendas</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="img/icon-192.png">
+<link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Nunito:wght@400;600;700;800&display=swap">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<header class="top"><div class="top-in">
+  <div class="brand"><b>Lazinho</b><small>Vendas</small></div>
+  <div class="row" style="gap:6px"><div class="who" id="quem"></div><button class="btn ghost sm" id="sair" hidden>Sair</button></div>
+</div></header>
+
+<main id="main">
+  <div id="carregando" class="empty">Carregando…</div>
+
+  <section id="v-login" class="login" hidden>
+    <div class="logo"><b>Lazinho</b><span>Pão de Queijo · Vendas</span></div>
+    <h2>Entrar</h2>
+    <form id="f-login" class="stack" autocomplete="off">
+      <label class="field" for="lg-usuario"><span>Seu nome de usuário</span><input type="text" id="lg-usuario" autocapitalize="none" autocomplete="off" autocorrect="off" placeholder="ex.: marlene"></label>
+      <div class="field"><span>Código de 4 números</span>
+        <div class="pin"><input id="pin-0" inputmode="numeric" maxlength="1" aria-label="Dígito 1"><input id="pin-1" inputmode="numeric" maxlength="1" aria-label="Dígito 2"><input id="pin-2" inputmode="numeric" maxlength="1" aria-label="Dígito 3"><input id="pin-3" inputmode="numeric" maxlength="1" aria-label="Dígito 4"></div>
+      </div>
+      <span id="lg-msg" class="muted small" style="min-height:18px"></span>
+      <button class="btn primary big" type="submit" id="lg-btn">Entrar</button>
+    </form>
+    <p class="muted small" style="text-align:center">O usuário e o código são passados pela Lazinho. <a href="gestao.html">Acesso da gestão</a></p>
+    <p class="muted small" style="text-align:center" id="versao"></p>
+  </section>
+
+  <section id="v-sem" class="login" hidden>
+    <div class="note warn">Este login ainda não está liberado como vendedor. Fale com a Lazinho.</div>
+    <button class="btn big" id="sem-sair">Sair</button>
+  </section>
+
+  <section id="t-pedidos" class="stack" hidden></section>
+  <section id="t-novo" class="stack" hidden></section>
+  <section id="t-clientes" class="stack" hidden></section>
+  <section id="t-visita" class="stack" hidden></section>
+</main>
+
+<nav class="tabbar" id="tabbar" hidden>
+  <button data-tab="pedidos" aria-current="true"><span class="i">📋</span>Pedidos</button>
+  <button data-tab="novo"><span class="i">➕</span>Novo pedido</button>
+  <button data-tab="clientes"><span class="i">🏪</span>Clientes</button>
+  <button data-tab="visita"><span class="i">📍</span>Visitas</button>
+</nav>
+<div id="sheet" class="sheet" hidden></div>
+<script type="module" src="js/vendedor.js"></script>
+</body>
+</html>
