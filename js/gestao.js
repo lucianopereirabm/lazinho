@@ -212,7 +212,8 @@ async function aplicaAndamentos(lista) {
 async function baixaPedidos(novos, cnovos) {
   const out = novos.map(p => ({ appId: p.id, data: p.data, clienteDoc: p.clienteDoc, clienteNome: p.clienteNome, itens: p.itens, total: p.total, condicaoId: p.condicaoId, condicaoNome: p.condicaoNome, prazo: p.prazo, obs: p.obs, dataEntrega: p.dataEntrega, vendedorId: p.vendedorId, vendedorNome: p.vendedorNome, criadoMs: p.criadoMs }));
   const cl = cnovos.map(c => { const { uid, status, ...resto } = c; return resto; });
-  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify({ gerado: new Date().toISOString(), clientes: cl, pedidos: out }, null, 1)], { type: 'application/json' })); a.download = 'pedidos-app-' + ymd() + '.json'; a.click();
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify({ gerado: new Date().toISOString(), usuarios: usuarios.map(u => ({ usuario: u.usuario || '', nome: u.nome || '', vendedorId: u.vendedorId || '', permPedido: u.permPedido !== false, permPreco: u.permPreco !== false, permVisita: u.permVisita !== false, permCliente: u.permCliente === true })), clientes: cl, pedidos: out }, null, 1)], { type: 'application/json' })); a.download = 'pedidos-app-' + ymd() + '.json'; a.click();
+  if (!novos.length && !cnovos.length) return;
   const b = writeBatch(db); const t = Date.now();
   novos.forEach(p => b.update(doc(db, 'pedidos', p.id), { status: 'recebido', recebidoEm: t, statusEm: t }));
   cnovos.forEach(c => b.update(doc(db, 'clientesNovos', c.doc), { status: 'enviado', enviadoEm: t }));
@@ -228,7 +229,7 @@ function abaCarga() {
       <label class="small muted">Arquivo vindo do Portal (opcional)</label>
       <input type="file" id="cg-arq" accept="application/json,.json">
       <div id="cg-prev"></div>
-      <button class="btn primary" id="cg-env" ${novos.length || cnovos.length ? '' : 'disabled'}>Atualizar tudo</button>
+      <button class="btn primary" id="cg-env">Atualizar tudo</button>
       <div id="cg-res"></div>
     </div>`;
   $('#cg-arq').onchange = async e => {
@@ -243,7 +244,7 @@ function abaCarga() {
     try {
       if (sync && sync.carga) { const n = await enviaCarga(sync.carga, btn); L.push(n + ' registros enviados ao app (clientes, produtos, vendas).'); }
       if (sync && (sync.andamentos || []).length) { const n = await aplicaAndamentos(sync.andamentos); L.push(n + ' pedido(s) com andamento novo para os vendedores.'); }
-      if (novos.length || cnovos.length) { await baixaPedidos(novos, cnovos); L.push(novos.length + ' pedido(s) e ' + cnovos.length + ' cliente(s) novo(s) baixados para o Portal (pedidos agora travados no app).'); }
+      { await baixaPedidos(novos, cnovos); L.push(novos.length + ' pedido(s) e ' + cnovos.length + ' cliente(s) novo(s) baixados para o Portal (pedidos agora travados no app).'); }
       if (!L.length) L.push('Nada novo para atualizar.');
       r.innerHTML = '<div class="note ok">' + L.map(h).join('<br>') + '</div>'; toast('Atualizado.'); sync = null;
     } catch (e) { r.innerHTML = '<div class="note crit">' + h(erroMsg(e)) + '</div>'; toast(erroMsg(e), 5000); }
