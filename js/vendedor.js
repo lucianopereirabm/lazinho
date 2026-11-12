@@ -22,20 +22,15 @@ let vs = null;                 // visita em digitação
 function novoVazio(cli) { return { clienteDoc: cli || '', itens: [{ key: '', qtd: '', preco: '' }], condicaoId: '', obs: '', dataEntrega: '', data: ymd() }; }
 
 // ---------- login ----------
-const pins = [0, 1, 2, 3].map(i => $('#pin-' + i));
-pins.forEach((p, i) => {
-  p.addEventListener('input', () => { p.value = p.value.replace(/\D/g, '').slice(-1); if (p.value && i < 3) pins[i + 1].focus(); });
-  p.addEventListener('keydown', e => { if (e.key === 'Backspace' && !p.value && i > 0) pins[i - 1].focus(); });
-});
 $('#f-login').addEventListener('submit', async e => {
   e.preventDefault();
-  const usuario = usuarioDeNome($('#lg-usuario').value), cod = pins.map(p => p.value).join('');
+  const usuario = usuarioDeNome($('#lg-usuario').value), cod = $('#lg-senha').value;
   const msg = $('#lg-msg'); msg.textContent = '';
   if (!usuario) { msg.textContent = 'Digite seu nome de usuário.'; return; }
-  if (cod.length !== 4) { msg.textContent = 'Digite os 4 números do código.'; return; }
+  if (!cod) { msg.textContent = 'Digite a senha.'; return; }
   $('#lg-btn').disabled = true; $('#lg-btn').textContent = 'Entrando…';
   try { await signInWithEmailAndPassword(auth, emailVendedor(usuario), senhaVendedor(cod)); lsSet('lz-usuario', usuario); }
-  catch (err) { msg.textContent = erroMsg(err); pins.forEach(p => p.value = ''); pins[0].focus(); }
+  catch (err) { msg.textContent = erroMsg(err); $('#lg-senha').value = ''; $('#lg-senha').focus(); }
   $('#lg-btn').disabled = false; $('#lg-btn').textContent = 'Entrar';
 });
 $('#sair').onclick = async () => { if (await confirma('Sair do app?', 'Sair')) await signOut(auth); };

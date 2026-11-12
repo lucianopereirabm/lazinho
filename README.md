@@ -2,7 +2,7 @@
 
 App dos vendedores do Pão de Queijo Lazinho (Pedaço de Minas Alimentos).
 
-- **App do vendedor:** https://lucianopereirabm.github.io/lazinho/ — entra com *usuário* (primeiro nome) e *código de 4 números*.
+- **App do vendedor:** https://lucianopereirabm.github.io/lazinho/ — entra com *usuário* (primeiro nome) e *senha*.
 - **Gestão:** https://lucianopereirabm.github.io/lazinho/gestao.html — e-mail e senha do administrador.
 
 ## O que o vendedor faz
@@ -16,7 +16,7 @@ Funciona sem internet: o que for registrado fica no celular e sobe sozinho quand
 
 ## Regras de segurança
 `firestore.rules` deve estar publicado em Firebase Console → Firestore Database → Regras.
-Os códigos dos vendedores **não** ficam neste repositório.
+As senhas dos vendedores **não** ficam neste repositório.
 
 ## Ligação com o Portal Lazinho
 O Portal envia a *carga* (clientes, produtos, condições, vendedores e resumo de vendas) e importa os pedidos novos.

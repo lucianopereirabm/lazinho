@@ -30,13 +30,11 @@
     <h2>Entrar</h2>
     <form id="f-login" class="stack" autocomplete="off">
       <label class="field" for="lg-usuario"><span>Seu nome de usuário</span><input type="text" id="lg-usuario" autocapitalize="none" autocomplete="off" autocorrect="off" placeholder="ex.: marlene"></label>
-      <div class="field"><span>Código de 4 números</span>
-        <div class="pin"><input id="pin-0" inputmode="numeric" maxlength="1" aria-label="Dígito 1"><input id="pin-1" inputmode="numeric" maxlength="1" aria-label="Dígito 2"><input id="pin-2" inputmode="numeric" maxlength="1" aria-label="Dígito 3"><input id="pin-3" inputmode="numeric" maxlength="1" aria-label="Dígito 4"></div>
-      </div>
+      <label class="field" for="lg-senha"><span>Senha</span><input type="password" id="lg-senha" autocomplete="current-password" autocapitalize="none" autocorrect="off"></label>
       <span id="lg-msg" class="muted small" style="min-height:18px"></span>
       <button class="btn primary big" type="submit" id="lg-btn">Entrar</button>
     </form>
-    <p class="muted small" style="text-align:center">O usuário e o código são passados pela Lazinho. <a href="gestao.html">Acesso da gestão</a></p>
+    <p class="muted small" style="text-align:center">O usuário e a senha são passados pela Lazinho. <a href="gestao.html">Acesso da gestão</a></p>
     <p class="muted small" style="text-align:center" id="versao"></p>
   </section>
 

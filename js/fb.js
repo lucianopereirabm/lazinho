@@ -18,7 +18,7 @@ export const firebaseConfig = {
   messagingSenderId: "704082318801",
   appId: "1:704082318801:web:d33a1ce7c1a579888b7cf0"
 };
-export const VERSAO = 'v1';
+export const VERSAO = 'v2';
 
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
@@ -38,10 +38,10 @@ export {
   deleteDoc, collection, query, where, orderBy, limit, onSnapshot, writeBatch, deleteField, serverTimestamp
 };
 
-// ---------- login dos vendedores: usuário (primeiro nome) + código de 4 números ----------
+// ---------- login dos vendedores: usuário (primeiro nome) + senha ----------
 export const DOMINIO_VENDEDOR = 'vendedor.lazinho.app';
 export const emailVendedor = usuario => `${usuario}@${DOMINIO_VENDEDOR}`;
-export const senhaVendedor = codigo => `lz-${codigo}-app`;
+export const senhaVendedor = senha => senha;   // a senha é a que a Gestão definiu (mínimo 6 caracteres)
 
 // Cria (ou troca o código de) um login de vendedor sem derrubar a sessão do administrador
 export async function criarAcessoVendedor(usuario, codigo, codigoAntigo) {
@@ -126,7 +126,7 @@ export function erroMsg(e) {
   const c = e && e.code || '';
   if (c.includes('permission-denied')) return 'Sem permissão para essa ação.';
   if (c.includes('unavailable') || c.includes('network')) return 'Sem internet. O registro será enviado quando a conexão voltar.';
-  if (c.includes('invalid-credential') || c.includes('wrong-password') || c.includes('user-not-found') || c.includes('invalid-login')) return 'Usuário ou código incorretos.';
+  if (c.includes('invalid-credential') || c.includes('wrong-password') || c.includes('user-not-found') || c.includes('invalid-login')) return 'Usuário ou senha incorretos.';
   if (c.includes('too-many-requests')) return 'Muitas tentativas. Aguarde alguns minutos e tente de novo.';
   return 'Não deu certo: ' + (e && e.message || 'erro desconhecido');
 }
