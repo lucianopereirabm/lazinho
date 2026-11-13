@@ -189,3 +189,7 @@ tr.click{cursor:pointer} tr.click:hover td{background:var(--sunk)}
 .dash-bar{height:10px;border-radius:999px;background:var(--sunk);overflow:hidden;margin-top:6px}
 .dash-bar i{display:block;height:100%;background:var(--ok);border-radius:999px}
 .tabbar button{font-size:11px;padding-left:2px;padding-right:2px}
+
+.kpi-btn{text-align:left;font:inherit;color:inherit;cursor:pointer;width:100%}
+.kpi-btn[aria-pressed="true"]{background:var(--red);border-color:var(--red);border-top-color:var(--wheat)}
+.kpi-btn[aria-pressed="true"] b,.kpi-btn[aria-pressed="true"] span{color:#fff}

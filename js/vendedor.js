@@ -122,6 +122,7 @@ const pill = s => { const i = statusInfo(s); return `<span class="pill ${i.c}">$
 // ---------- INÍCIO (painel do mês) ----------
 // Mesma regra de comissão do Portal: % cadastrado; sem cadastro, Marlene 7%, venda direta 0%, demais 5%
 const pctVend = id => { const v = vendedoresDb.find(x => x.id === id); if (v && v.comissaoPct != null && v.comissaoPct !== '') return +v.comissaoPct || 0; return id === 'marlene' ? 7 : (id === 'venda-direta' ? 0 : 5); };
+let inVer = 'nao';
 function renderInicio() {
   const mes = ymd().slice(0, 7), sup = me.perm.todos;
   const fat = d => { const r = resumo[d]; return r && r.mes === mes ? (+r.mesTotal || 0) : 0; };
@@ -146,16 +147,16 @@ function renderInicio() {
       <div class="line"><span class="muted">${sup ? 'Comissões do mês (estimativa)' : 'Sua comissão (' + pctMeu + '%)'}</span><b>${brl(com)}</b></div>
       <div class="muted small">Comissão estimada sobre o que já foi faturado no mês; o valor final é confirmado pela Lazinho.</div></div>
     <div class="kpis dash-k2">
-      <div class="kpi"><b>${comp.length}</b><span>Clientes que compraram</span></div>
-      <div class="kpi"><b>${nao.length}</b><span>Ainda não compraram</span></div></div>
+      <button class="kpi kpi-btn" data-iv="comp" aria-pressed="${inVer === 'comp'}"><b>${comp.length}</b><span>Clientes que compraram</span></button>
+      <button class="kpi kpi-btn" data-iv="nao" aria-pressed="${inVer === 'nao'}"><b>${nao.length}</b><span>Ainda não compraram</span></button></div>
     <div class="card"><div class="line"><span class="muted">Clientes ativos no mês</span><b>${pc}% (${comp.length} de ${clientes.length})</b></div><div class="dash-bar"><i style="width:${pc}%"></i></div></div>
     <div class="card"><div class="label" style="margin-bottom:6px">Pedidos feitos no app</div>
       <div class="line"><span class="muted">Pedidos no mês</span><b>${doMes.length} · ${brl(soma(doMes))}</b></div>
       <div class="line"><span class="muted">Aguardando faturar</span><b>${aFat.length} · ${brl(soma(aFat))}</b></div></div>
     ${sup && linhas.length ? `<div class="card"><div class="label" style="margin-bottom:6px">Por vendedor</div>${linhas.map(g => `<div class="line"><span>${h(nomeV(g.id))}<br><span class="muted small">${g.nc} de ${g.n} clientes compraram${g.pct ? ' · ' + g.pct + '%' : ''}</span></span><span style="text-align:right"><b>${brl(g.fat)}</b>${g.com ? `<br><span class="muted small">comissão ${brl(g.com)}</span>` : ''}</span></div>`).join('')}</div>` : ''}
-    <div class="spread"><div class="label">${nao.length ? 'Ainda não compraram em ' + h(mesNome(mes).split('/')[0]) : 'Todos os clientes já compraram no mês 🎉'}</div>${nao.length > 8 ? '<button class="btn ghost sm" id="in-ver">Ver todos</button>' : ''}</div>
-    <div class="list">${ordem.slice(0, 8).map(c => { const r = resumo[c.doc] || {}; return `<button class="item" data-d="${h(c.doc)}"><div class="t"><b>${h(c.fantasia || c.nome)}</b><span>${h(c.municipio || '')}${c.uf ? '/' + h(c.uf) : ''}</span></div><div class="r">${r.ultima ? `<span class="muted">última compra</span><b>${dataBR(r.ultima)}</b>` : '<span class="muted">sem compra</span>'}</div></button>`; }).join('')}</div>`;
-  const vt = $('#in-ver'); if (vt) vt.onclick = () => { fCli.f = 'nao'; vaiTab('clientes'); };
+    <div class="label">${inVer === 'comp' ? 'Compraram em ' + h(mesNome(mes).split('/')[0]) + ' (' + comp.length + ')' : 'Ainda não compraram em ' + h(mesNome(mes).split('/')[0]) + ' (' + nao.length + ')'}</div>
+    <div class="list">${(inVer === 'comp' ? [...comp].sort((a, b) => fat(b.doc) - fat(a.doc)) : ordem).map(c => { const r = resumo[c.doc] || {}; return `<button class="item" data-d="${h(c.doc)}"><div class="t"><b>${h(c.fantasia || c.nome)}</b><span>${h(c.municipio || '')}${c.uf ? '/' + h(c.uf) : ''}</span></div><div class="r">${inVer === 'comp' ? `<span class="muted">faturado no mês</span><b>${brl(fat(c.doc))}</b>` : (r.ultima ? `<span class="muted">última compra</span><b>${dataBR(r.ultima)}</b>` : '<span class="muted">sem compra</span>')}</div></button>`; }).join('') || '<div class="muted">Nenhum cliente nesta lista.</div>'}</div>`;
+  $$('#t-inicio [data-iv]').forEach(b => b.onclick = () => { inVer = b.dataset.iv; renderInicio(); });
   $$('#t-inicio [data-d]').forEach(b => b.onclick = () => abreCliente(b.dataset.d));
 }
 
