@@ -299,17 +299,54 @@ function renderNovo() {
     <input type="search" id="n-busca" placeholder="Buscar produto ou código" autocomplete="off" value="${h(np.busca || '')}">
     ${!produtos.length ? '<div class="note warn">Os produtos ainda não foram carregados. Se acabou de instalar, aguarde alguns segundos com internet.</div>' : ''}
     <div class="catalogo" id="n-cat"></div>
-    <div class="cartbar" id="n-cart" hidden><div><small id="n-cart-n"></small><b id="n-total">${brl(0)}</b></div><button class="btn wheat" id="n-rev">Revisar pedido ›</button></div>`;
+    <div id="n-fim" class="stack" style="margin-top:14px">
+      <div class="label">Resumo do pedido</div>
+      <div class="list" id="n-resumo"></div>
+      <div class="total"><span>Total</span><span id="r-total">${brl(0)}</span></div>
+      <label class="field"><span>Pagamento</span><select id="n-cond">${condicoes.map(c => `<option value="${h(c.id)}" ${c.id === np.condicaoId ? 'selected' : ''}>${h(c.nome)}</option>`).join('')}</select></label>
+      <div class="grid2" style="gap:10px">
+        <label class="field"><span>Data do pedido</span><input type="date" id="n-data" value="${h(np.data)}"></label>
+        <label class="field"><span>Entrega desejada (opcional)</span><input type="date" id="n-ent" value="${h(np.dataEntrega)}"></label>
+      </div>
+      <label class="field"><span>Observação (vai na nota fiscal)</span><textarea id="n-obs" placeholder="Ex.: entregar pela manhã · pedido de compra nº 123">${h(np.obs)}</textarea></label>
+      <button class="btn primary big" id="n-salvar">${np.editId ? 'Salvar alterações' : 'Enviar pedido'}</button>
+      <button class="btn ghost danger" id="n-limpa">${np.editId ? 'Cancelar edição' : 'Limpar tudo'}</button>
+    </div>
+    <div class="cartbar" id="n-cart" hidden><div><small id="n-cart-n"></small><b id="n-total">${brl(0)}</b></div><button class="btn wheat" id="n-rev">Finalizar ›</button></div>`;
   desenhaCatalogo();
   $('#n-cli').onclick = () => escolheCliente(d => { const mud = d !== np.clienteDoc; np.clienteDoc = d; if (mud) repreca(); renderNovo(); });
   $('#n-busca').oninput = e => { np.busca = e.target.value; desenhaCatalogo(); };
-  $('#n-rev').onclick = revisaPedido;
+  $('#n-rev').onclick = () => $('#n-fim').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  $('#n-cond').onchange = e => np.condicaoId = e.target.value;
+  $('#n-data').onchange = e => np.data = e.target.value;
+  $('#n-ent').onchange = e => np.dataEntrega = e.target.value;
+  $('#n-obs').oninput = e => np.obs = e.target.value;
+  $('#n-limpa').onclick = async () => { if (await confirma(np.editId ? 'Cancelar a edição? As alterações serão descartadas.' : 'Limpar o pedido em digitação?', 'Sim')) { const ed = np.editId; np = novoVazio(); fechaSheet(); if (ed) vaiTab('pedidos'); else renderNovo(); } };
+  $('#n-salvar').onclick = () => salvaPedido();
+}
+// resumo dos itens escolhidos (com preço editável para quem pode) — fica no fim da mesma tela
+function desenhaResumo() {
+  const box = $('#n-resumo'); if (!box) return;
+  const L = np.itens.filter(i => i.key && +i.qtd > 0);
+  box.innerHTML = L.length ? L.map(it => { const o = opPorKey(it.key), p = produtos.find(x => x.id === (o && o.prodId)) || {}; return `
+      <div class="rv" data-key="${h(it.key)}"><div class="ph-box sm">${fotoProd(p)}</div>
+        <div class="rv-t"><b>${h(o ? o.nome : it.key)}</b><small>${h(o ? o.un : '')} · ${it.qtd}</small></div>
+        <label class="rv-p"><small>Preço</small><input type="number" inputmode="decimal" min="0" step="0.01" value="${h(it.preco)}" ${me.perm.preco ? '' : 'readonly'}></label>
+        <b class="num rv-s">${brl(r2((+it.qtd || 0) * (+String(it.preco).replace(',', '.') || 0)))}</b></div>`; }).join('') : '<div class="muted small">Escolha os produtos acima.</div>';
+  $$('#n-resumo .rv').forEach(row => row.querySelector('input').addEventListener('input', e => {
+    const it = itPor(row.dataset.key); it.preco = e.target.value;
+    row.querySelector('.rv-s').textContent = brl(r2((+it.qtd || 0) * (+String(it.preco).replace(',', '.') || 0))); $('#r-total').textContent = brl(totalNovo()); atualizaBarra();
+  }));
+  $('#r-total').textContent = brl(totalNovo());
 }
 renderNovoSePreciso = () => { /* produtos/condições chegaram: atualiza sem perder o que foi digitado */
   if (!$('#n-cat')) return renderNovo();
-  if (document.activeElement && document.activeElement.closest('#n-cat')) return;
+  if (document.activeElement && document.activeElement.closest('#n-cat, #n-fim')) return;
+  if ($('#n-cond') && $('#n-cond').options.length !== condicoes.length) return renderNovo();
   desenhaCatalogo();
 };
+// no pedido do app o Tradicional (cód. 1948) só vende em FARDO; a unidade fica escondida
+const unsCat = p => (p.unidades || []).filter(u => !(String(p.codigo) === '1948' && u.un === 'UN'));
 const fotoProd = p => p.foto ? `<img src="${h(p.foto)}" alt="">` : `<span class="ph">${h((p.nome || '?')[0].toUpperCase())}</span>`;
 const itPor = key => np.itens.find(i => i.key === key);
 function desenhaCatalogo() {
@@ -318,7 +355,7 @@ function desenhaCatalogo() {
   $('#n-cat').innerHTML = lista.length ? lista.map(p => `
     <div class="prod"><div class="ph-box">${fotoProd(p)}</div>
       <div class="pinfo"><b>${h(p.nome)}</b>${p.codigo ? `<small>Cód. ${h(p.codigo)}</small>` : ''}
-        ${(p.unidades || []).map(u => { const key = p.id + '|' + u.un, it = itPor(key), q = it ? (+it.qtd || 0) : 0; return `
+        ${unsCat(p).map(u => { const key = p.id + '|' + u.un, it = itPor(key), q = it ? (+it.qtd || 0) : 0; return `
         <div class="un" data-key="${h(key)}"><span class="un-t"><b>${h(u.un)}</b> <span class="num">${brl(precoCli(p, u.un, u.preco, np.clienteDoc))}</span>${((cliPor(np.clienteDoc) || {}).tabela && precoCli(p, u.un, u.preco, np.clienteDoc) !== (+u.preco || 0)) ? ' <span class="tag ok">tabela</span>' : ''}</span>
           <span class="step"><button data-d="-1" aria-label="menos" ${q ? '' : 'disabled'}>−</button><input type="number" inputmode="numeric" min="0" value="${q || ''}" placeholder="0" aria-label="quantidade"><button data-d="1" aria-label="mais">+</button></span></div>`; }).join('')}
       </div></div>`).join('') : `<div class="empty"><img class="empty-logo" src="img/logo.png" alt=""><b>${produtos.length ? 'Nenhum produto encontrado' : 'Sem produtos ainda'}</b>${produtos.length ? 'Tente outra palavra.' : 'A Lazinho ainda vai liberar o catálogo.'}</div>`;
@@ -344,47 +381,13 @@ $('#t-novo').addEventListener('input', e => {
   const i = e.target.closest('.un input'); if (!i) return;
   const row = i.closest('.un'); setQtd(row.dataset.key, i.value); row.querySelector('[data-d="-1"]').disabled = !(+i.value > 0); atualizaCarrinho();
 });
-function atualizaCarrinho() {
+function atualizaCarrinho() { desenhaResumo(); atualizaBarra(); }
+function atualizaBarra() {
   const L = np.itens.filter(i => i.key && +i.qtd > 0), n = L.length, t = totalNovo();
   const bar = $('#n-cart'); if (!bar) return;
   bar.hidden = !n; $('#n-cart-n').textContent = n + (n === 1 ? ' item no pedido' : ' itens no pedido'); $('#n-total').textContent = brl(t);
 }
 function totalNovo() { return r2(np.itens.reduce((a, it) => a + (+it.qtd || 0) * (+String(it.preco).replace(',', '.') || 0), 0)); }
-function revisaPedido() {
-  const L = np.itens.filter(i => i.key && +i.qtd > 0);
-  if (!L.length) return toast('Escolha pelo menos um produto.');
-  const cli = cliPor(np.clienteDoc);
-  sheet(`
-    <div class="hero"><img src="img/logo.png" alt=""><div><h2>Revisar pedido</h2><span>${cli ? h(cli.fantasia || cli.nome) : 'Escolha o cliente'}</span></div></div>
-    ${cli ? '' : '<button class="btn wheat" id="r-cli">Escolher cliente</button>'}
-    <div class="list">${L.map(it => { const o = opPorKey(it.key), p = produtos.find(x => x.id === (o && o.prodId)) || {}; return `
-      <div class="rv" data-key="${h(it.key)}"><div class="ph-box sm">${fotoProd(p)}</div>
-        <div class="rv-t"><b>${h(o ? o.nome : it.key)}</b><small>${h(o ? o.un : '')} · ${it.qtd} un.</small></div>
-        <label class="rv-p"><small>Preço</small><input type="number" inputmode="decimal" min="0" step="0.01" value="${h(it.preco)}" ${me.perm.preco ? '' : 'readonly'}></label>
-        <b class="num rv-s">${brl(r2((+it.qtd || 0) * (+String(it.preco).replace(',', '.') || 0)))}</b></div>`; }).join('')}</div>
-    <div class="total"><span>Total</span><span id="r-total">${brl(totalNovo())}</span></div>
-    <label class="field"><span>Pagamento</span><select id="n-cond">${condicoes.map(c => `<option value="${h(c.id)}" ${c.id === np.condicaoId ? 'selected' : ''}>${h(c.nome)}</option>`).join('')}</select></label>
-    <div class="grid2" style="gap:10px">
-      <label class="field"><span>Data do pedido</span><input type="date" id="n-data" value="${h(np.data)}"></label>
-      <label class="field"><span>Entrega desejada (opcional)</span><input type="date" id="n-ent" value="${h(np.dataEntrega)}"></label>
-    </div>
-    <label class="field"><span>Observação</span><textarea id="n-obs" placeholder="Ex.: entregar pela manhã">${h(np.obs)}</textarea></label>
-    <button class="btn primary big" id="n-salvar">${np.editId ? 'Salvar alterações' : 'Enviar pedido'}</button>
-    <button class="btn ghost" id="r-volta">‹ Voltar e continuar escolhendo</button>
-    <button class="btn ghost danger" id="n-limpa">${np.editId ? 'Cancelar edição' : 'Limpar tudo'}</button>`);
-  const rc = $('#r-cli'); if (rc) rc.onclick = () => escolheCliente(d => { const mud = d !== np.clienteDoc; np.clienteDoc = d; if (mud) repreca(); revisaPedido(); });
-  $$('#sheet .rv').forEach(row => row.querySelector('input').addEventListener('input', e => {
-    const it = itPor(row.dataset.key); it.preco = e.target.value;
-    row.querySelector('.rv-s').textContent = brl(r2((+it.qtd || 0) * (+String(it.preco).replace(',', '.') || 0))); $('#r-total').textContent = brl(totalNovo());
-  }));
-  $('#n-cond').onchange = e => np.condicaoId = e.target.value;
-  $('#n-data').onchange = e => np.data = e.target.value;
-  $('#n-ent').onchange = e => np.dataEntrega = e.target.value;
-  $('#n-obs').oninput = e => np.obs = e.target.value;
-  $('#r-volta').onclick = () => { fechaSheet(); renderNovo(); };
-  $('#n-limpa').onclick = async () => { if (await confirma(np.editId ? 'Cancelar a edição? As alterações serão descartadas.' : 'Limpar o pedido em digitação?', 'Sim')) { const ed = np.editId; np = novoVazio(); fechaSheet(); if (ed) vaiTab('pedidos'); else renderNovo(); } };
-  $('#n-salvar').onclick = () => salvaPedido();
-}
 function salvaPedido() {
   const cli = cliPor(np.clienteDoc);
   if (!cli) return toast('Escolha o cliente.');
