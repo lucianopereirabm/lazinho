@@ -311,12 +311,10 @@ function renderNovo() {
       <label class="field"><span>Observação (vai na nota fiscal)</span><textarea id="n-obs" placeholder="Ex.: entregar pela manhã · pedido de compra nº 123">${h(np.obs)}</textarea></label>
       <button class="btn primary big" id="n-salvar">${np.editId ? 'Salvar alterações' : 'Enviar pedido'}</button>
       <button class="btn ghost danger" id="n-limpa">${np.editId ? 'Cancelar edição' : 'Limpar tudo'}</button>
-    </div>
-    <div class="cartbar" id="n-cart" hidden><div><small id="n-cart-n"></small><b id="n-total">${brl(0)}</b></div><button class="btn wheat" id="n-rev">Finalizar ›</button></div>`;
+    </div>`;
   desenhaCatalogo();
   $('#n-cli').onclick = () => escolheCliente(d => { const mud = d !== np.clienteDoc; np.clienteDoc = d; if (mud) repreca(); renderNovo(); });
   $('#n-busca').oninput = e => { np.busca = e.target.value; desenhaCatalogo(); };
-  $('#n-rev').onclick = () => $('#n-fim').scrollIntoView({ behavior: 'smooth', block: 'start' });
   $('#n-cond').onchange = e => np.condicaoId = e.target.value;
   $('#n-data').onchange = e => np.data = e.target.value;
   $('#n-ent').onchange = e => np.dataEntrega = e.target.value;
@@ -335,7 +333,7 @@ function desenhaResumo() {
         <b class="num rv-s">${brl(r2((+it.qtd || 0) * (+String(it.preco).replace(',', '.') || 0)))}</b></div>`; }).join('') : '<div class="muted small">Escolha os produtos acima.</div>';
   $$('#n-resumo .rv').forEach(row => row.querySelector('input').addEventListener('input', e => {
     const it = itPor(row.dataset.key); it.preco = e.target.value;
-    row.querySelector('.rv-s').textContent = brl(r2((+it.qtd || 0) * (+String(it.preco).replace(',', '.') || 0))); $('#r-total').textContent = brl(totalNovo()); atualizaBarra();
+    row.querySelector('.rv-s').textContent = brl(r2((+it.qtd || 0) * (+String(it.preco).replace(',', '.') || 0))); $('#r-total').textContent = brl(totalNovo());
   }));
   $('#r-total').textContent = brl(totalNovo());
 }
@@ -381,12 +379,7 @@ $('#t-novo').addEventListener('input', e => {
   const i = e.target.closest('.un input'); if (!i) return;
   const row = i.closest('.un'); setQtd(row.dataset.key, i.value); row.querySelector('[data-d="-1"]').disabled = !(+i.value > 0); atualizaCarrinho();
 });
-function atualizaCarrinho() { desenhaResumo(); atualizaBarra(); }
-function atualizaBarra() {
-  const L = np.itens.filter(i => i.key && +i.qtd > 0), n = L.length, t = totalNovo();
-  const bar = $('#n-cart'); if (!bar) return;
-  bar.hidden = !n; $('#n-cart-n').textContent = n + (n === 1 ? ' item no pedido' : ' itens no pedido'); $('#n-total').textContent = brl(t);
-}
+function atualizaCarrinho() { desenhaResumo(); }
 function totalNovo() { return r2(np.itens.reduce((a, it) => a + (+it.qtd || 0) * (+String(it.preco).replace(',', '.') || 0), 0)); }
 function salvaPedido() {
   const cli = cliPor(np.clienteDoc);
