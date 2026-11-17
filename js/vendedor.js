@@ -110,12 +110,21 @@ function render() { ({ inicio: renderInicio, pedidos: renderPedidos, novo: rende
 // ---------- utilidades ----------
 const nomeCli = d => { const c = clientes.find(x => x.doc === d); return c ? (c.fantasia || c.nome) : d; };
 const cliPor = d => clientes.find(x => x.doc === d);
-function opcoesProduto() {
+// preço do produto para o cliente: se o cliente tem tabela própria (ex.: Floresta) e o produto tem preço nela, vale esse
+function precoCli(p, un, base, doc) {
+  const c = doc ? cliPor(doc) : null, tab = c && c.tabela;
+  if (!tab) return +base || 0;
+  const e = (p.precosEsp || []).find(x => x.tabela === tab && x.un === un);
+  return e && +e.preco > 0 ? +e.preco : (+base || 0);
+}
+function opcoesProduto(doc) {
   const o = [];
-  produtos.forEach(p => (p.unidades || []).forEach(u => o.push({ key: p.id + '|' + u.un, prodId: p.id, codigo: p.codigo || '', nome: p.nome, un: u.un, preco: +u.preco || 0 })));
+  produtos.forEach(p => (p.unidades || []).forEach(u => o.push({ key: p.id + '|' + u.un, prodId: p.id, codigo: p.codigo || '', nome: p.nome, un: u.un, preco: precoCli(p, u.un, u.preco, doc) })));
   return o.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR') || a.un.localeCompare(b.un));
 }
-const opPorKey = k => opcoesProduto().find(o => o.key === k);
+const opPorKey = k => opcoesProduto(np && np.clienteDoc).find(o => o.key === k);
+// ao trocar o cliente, refaz os preços do pedido conforme a tabela dele
+function repreca() { np.itens.forEach(it => { if (!it.key) return; const o = opPorKey(it.key); if (o) it.preco = String(o.preco); }); }
 const pill = s => { const i = statusInfo(s); return `<span class="pill ${i.c}">${h(i.t)}</span>`; };
 
 
@@ -251,7 +260,7 @@ function abrePedido(id) {
   $('#sh-x').onclick = fechaSheet;
   const ed = $('#sh-edit'); if (ed) ed.onclick = () => { np = novoVazio(p.clienteDoc); np.editId = p.id; np.data = p.data; np.dataEntrega = p.dataEntrega || ''; np.obs = p.obs || ''; np.condicaoId = p.condicaoId || ''; np.itens = (p.itens || []).map(i => ({ key: i.prodId + '|' + i.un, qtd: String(i.qtd), preco: String(i.preco) })); fechaSheet(); vaiTab('novo'); };
   ['danfe', 'xml', 'envia'].forEach(k => { const b = $('#sh-' + k); if (b) b.onclick = () => anexoNota(p, k, b); });
-  const rp = $('#sh-rep'); if (rp) rp.onclick = () => { np = novoVazio(p.clienteDoc); np.itens = (p.itens || []).map(i => ({ key: i.prodId + '|' + i.un, qtd: String(i.qtd), preco: String(i.preco) })); np.condicaoId = p.condicaoId || ''; fechaSheet(); vaiTab('novo'); };
+  const rp = $('#sh-rep'); if (rp) rp.onclick = () => { np = novoVazio(p.clienteDoc); np.itens = (p.itens || []).map(i => ({ key: i.prodId + '|' + i.un, qtd: String(i.qtd), preco: String(i.preco) })); np.condicaoId = p.condicaoId || ''; if ((cliPor(np.clienteDoc) || {}).tabela) repreca(); fechaSheet(); vaiTab('novo'); };
   const vv = $('#sh-vis'); if (vv) vv.onclick = () => { fechaSheet(); abreVisita(p.clienteDoc); };
   const c = $('#sh-canc'); if (c) c.onclick = async () => {
     if (!(await confirma('Cancelar este pedido?', 'Cancelar pedido'))) return;
@@ -274,7 +283,7 @@ function renderNovo() {
     <div class="catalogo" id="n-cat"></div>
     <div class="cartbar" id="n-cart" hidden><div><small id="n-cart-n"></small><b id="n-total">${brl(0)}</b></div><button class="btn wheat" id="n-rev">Revisar pedido ›</button></div>`;
   desenhaCatalogo();
-  $('#n-cli').onclick = () => escolheCliente(d => { np.clienteDoc = d; renderNovo(); });
+  $('#n-cli').onclick = () => escolheCliente(d => { const mud = d !== np.clienteDoc; np.clienteDoc = d; if (mud) repreca(); renderNovo(); });
   $('#n-busca').oninput = e => { np.busca = e.target.value; desenhaCatalogo(); };
   $('#n-rev').onclick = revisaPedido;
 }
@@ -292,7 +301,7 @@ function desenhaCatalogo() {
     <div class="prod"><div class="ph-box">${fotoProd(p)}</div>
       <div class="pinfo"><b>${h(p.nome)}</b>${p.codigo ? `<small>Cód. ${h(p.codigo)}</small>` : ''}
         ${(p.unidades || []).map(u => { const key = p.id + '|' + u.un, it = itPor(key), q = it ? (+it.qtd || 0) : 0; return `
-        <div class="un" data-key="${h(key)}"><span class="un-t"><b>${h(u.un)}</b> <span class="num">${brl(+u.preco || 0)}</span></span>
+        <div class="un" data-key="${h(key)}"><span class="un-t"><b>${h(u.un)}</b> <span class="num">${brl(precoCli(p, u.un, u.preco, np.clienteDoc))}</span>${((cliPor(np.clienteDoc) || {}).tabela && precoCli(p, u.un, u.preco, np.clienteDoc) !== (+u.preco || 0)) ? ' <span class="tag ok">tabela</span>' : ''}</span>
           <span class="step"><button data-d="-1" aria-label="menos" ${q ? '' : 'disabled'}>−</button><input type="number" inputmode="numeric" min="0" value="${q || ''}" placeholder="0" aria-label="quantidade"><button data-d="1" aria-label="mais">+</button></span></div>`; }).join('')}
       </div></div>`).join('') : `<div class="empty"><img class="empty-logo" src="img/logo.png" alt=""><b>${produtos.length ? 'Nenhum produto encontrado' : 'Sem produtos ainda'}</b>${produtos.length ? 'Tente outra palavra.' : 'A Lazinho ainda vai liberar o catálogo.'}</div>`;
   atualizaCarrinho();
@@ -345,7 +354,7 @@ function revisaPedido() {
     <button class="btn primary big" id="n-salvar">${np.editId ? 'Salvar alterações' : 'Enviar pedido'}</button>
     <button class="btn ghost" id="r-volta">‹ Voltar e continuar escolhendo</button>
     <button class="btn ghost danger" id="n-limpa">${np.editId ? 'Cancelar edição' : 'Limpar tudo'}</button>`);
-  const rc = $('#r-cli'); if (rc) rc.onclick = () => escolheCliente(d => { np.clienteDoc = d; revisaPedido(); });
+  const rc = $('#r-cli'); if (rc) rc.onclick = () => escolheCliente(d => { const mud = d !== np.clienteDoc; np.clienteDoc = d; if (mud) repreca(); revisaPedido(); });
   $$('#sheet .rv').forEach(row => row.querySelector('input').addEventListener('input', e => {
     const it = itPor(row.dataset.key); it.preco = e.target.value;
     row.querySelector('.rv-s').textContent = brl(r2((+it.qtd || 0) * (+String(it.preco).replace(',', '.') || 0))); $('#r-total').textContent = brl(totalNovo());
