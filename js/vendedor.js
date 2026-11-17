@@ -4,6 +4,7 @@ import {
   serverTimestamp, emailVendedor, senhaVendedor, usuarioDeNome, $, $$, h, semAcento, porNome, ymd, mesDe, dataBR, dataHoraBR, brl, r2, mesNome,
   docFmt, toast, abreModal, fechaModal, confirma, erroMsg, pegaGPS, reduzFoto, avisoRede, atualizaAgora, statusInfo, VERSAO, lsGet, lsSet
 } from './fb.js';
+import { geraPdfPedido } from './pdfpedido.js';
 
 avisoRede();
 $('#versao').textContent = 'Lazinho Vendas ' + VERSAO;
@@ -225,6 +226,21 @@ async function anexoNota(p, qual, btn) {
   finally { btn.disabled = false; btn.textContent = txt; }
 }
 
+async function pdfPedido(p, btn) {
+  const msg = $('#sh-pdf-msg'), say = t => { if (msg) msg.textContent = t; };
+  const txt = btn.textContent; btn.disabled = true; btn.textContent = 'Gerando o PDF…'; say('');
+  try {
+    const blob = await geraPdfPedido({ pedido: p, cliente: cliPor(p.clienteDoc), produtos, vendedorNome: p.vendedorNome }, 'img/logo.png');
+    const nome = 'Pedido-' + (p.numeroPortal || p.data) + '-' + semAcento(p.clienteNome || 'cliente').replace(/[^a-z0-9]+/gi, '-').slice(0, 30) + '.pdf', f = new File([blob], nome, { type: 'application/pdf' });
+    if (navigator.canShare && navigator.canShare({ files: [f] })) {
+      try { await navigator.share({ files: [f], title: 'Pedido — Pão de Queijo Lazinho', text: 'Segue a cópia do seu pedido — Pão de Queijo Lazinho' }); return; } catch (e) { if (e && e.name === 'AbortError') return; }
+    }
+    const u = URL.createObjectURL(f), a = document.createElement('a'); a.href = u; a.download = nome; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 30000);
+    say('Seu aparelho não abriu o compartilhamento; baixei o PDF para você enviar.');
+  } catch (e) { say('Não consegui gerar o PDF: ' + erroMsg(e)); }
+  finally { btn.disabled = false; btn.textContent = txt; }
+}
+
 function abrePedido(id) {
   const p = pedidos.find(x => x.id === id); if (!p) return;
   const passos = [
@@ -251,6 +267,7 @@ function abrePedido(id) {
       <button class="btn primary big" id="sh-danfe">📄 Baixar DANFE (com boleto)</button>
       <button class="btn big" id="sh-xml">🧾 Baixar XML da nota</button>
       <button class="btn wheat big" id="sh-envia">📤 Enviar DANFE + XML ao cliente</button></div><div class="muted small" id="sh-anx-msg" style="margin-top:6px"></div></div>` : ''}
+    ${canc ? '' : `<div class="card"><div class="stack"><button class="btn primary big" id="sh-pdf">📄 PDF do pedido (enviar ao cliente)</button></div><div class="muted small" id="sh-pdf-msg" style="margin-top:6px"></div></div>`}
     <div class="stack">
       ${p.status === 'novo' && me.perm.pedido && p.vendedorId === me.vendedorId ? '<button class="btn primary big" id="sh-edit">Editar pedido</button>' : ''}
       ${me.perm.pedido ? '<button class="btn wheat big" id="sh-rep">Repetir este pedido</button>' : ''}
@@ -259,6 +276,7 @@ function abrePedido(id) {
     </div>`);
   $('#sh-x').onclick = fechaSheet;
   const ed = $('#sh-edit'); if (ed) ed.onclick = () => { np = novoVazio(p.clienteDoc); np.editId = p.id; np.data = p.data; np.dataEntrega = p.dataEntrega || ''; np.obs = p.obs || ''; np.condicaoId = p.condicaoId || ''; np.itens = (p.itens || []).map(i => ({ key: i.prodId + '|' + i.un, qtd: String(i.qtd), preco: String(i.preco) })); fechaSheet(); vaiTab('novo'); };
+  const pdfb = $('#sh-pdf'); if (pdfb) pdfb.onclick = () => pdfPedido(p, pdfb);
   ['danfe', 'xml', 'envia'].forEach(k => { const b = $('#sh-' + k); if (b) b.onclick = () => anexoNota(p, k, b); });
   const rp = $('#sh-rep'); if (rp) rp.onclick = () => { np = novoVazio(p.clienteDoc); np.itens = (p.itens || []).map(i => ({ key: i.prodId + '|' + i.un, qtd: String(i.qtd), preco: String(i.preco) })); np.condicaoId = p.condicaoId || ''; if ((cliPor(np.clienteDoc) || {}).tabela) repreca(); fechaSheet(); vaiTab('novo'); };
   const vv = $('#sh-vis'); if (vv) vv.onclick = () => { fechaSheet(); abreVisita(p.clienteDoc); };
